@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Workflowy Lock",
+  "version": "1.0",
+  "description": "Encrypt your Workflowy content",
+  "author": "contact@alpafyonluoglu.dev",
+  "action": {
+    "default_title": "Workflowy Lock",
+    "default_popup": "./popup/popup.html"
+  },
+  "background": {
+    "service_worker": "./background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.workflowy.com/*"],
+      "run_at": "document_end",
+      "js": ["/scripts/content.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    { 
+      "resources": ["/scripts/lock.js"],
+      "matches": ["*://*.workflowy.com/*"]
+    }
+  ],
+  "permissions": [
+    "scripting",
+    "tabs",
+    "webRequest",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.workflowy.com/*"
+  ]
+}
