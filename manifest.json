@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Workflowy Lock",
+  "name": "Workflowy Encrypter",
   "version": "1.0",
   "description": "Encrypt your Workflowy content",
   "author": "contact@alpafyonluoglu.dev",
   "action": {
-    "default_title": "Workflowy Lock",
+    "default_title": "Workflowy Encrypter",
     "default_popup": "./popup/popup.html"
   },
   "background": {

@@ -107,7 +107,9 @@ function loadSecret() {
   let secret = window.localStorage.getItem("lockSecret");
   if (!secret || secret === null | secret === "null" || secret === "") {
     secret = window.prompt("Enter your key:");
-    window.localStorage.setItem("lockSecret", secret);
+    if (secret) {
+      window.localStorage.setItem("lockSecret", secret);
+    }
   }
   SECRET = secret;
 }
