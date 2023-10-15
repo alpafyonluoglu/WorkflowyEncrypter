@@ -1,5 +1,7 @@
 const DOMAIN = "https://workflowy.com";
+const LOCK_TAG = "#private";
 var SECRET;
+var NODES = {};
 loadSecret();
 
 // Fetch wrapper [https://stackoverflow.com/a/64961272]
@@ -26,20 +28,105 @@ async function onPreFetch(url, params) {
   let body = await encodeBody(params.body);
   for (let pushPollDataNode of body.push_poll_data) {
     for (let operationNode of pushPollDataNode.operations) {
-      const name = operationNode.data.name;
-      const previousName= operationNode.undo_data.previous_name;
+      let dataNodes = [];
 
-      if (name && isString(name) && name.length > 0) {
-        operationNode.data.name = await encrypt(name);
+      // Extract data nodes list
+      try {
+        switch (operationNode.type) {
+          case "bulk_create":
+            var parent = operationNode.data.parentid !== "None" ? operationNode.data.parentid : null;
+            let projects = JSON.parse(operationNode.data.project_trees);
+            dataNodes = dataNodes.concat(extractDataNodesFromProjects(projects, parent));
+            break;
+          case "edit":
+            dataNodes.push({
+              id: operationNode.data.projectid,
+              locked: operationNode.data.name.includes(LOCK_TAG),
+              contentTag: "name",
+              node: operationNode.data
+            });
+            dataNodes.push({
+              id: operationNode.data.projectid,
+              contentTag: "previous_name",
+              node: operationNode.undo_data
+            });
+  
+            // Warnings
+            // TODO: Auto encrypt
+            const name = operationNode.data.name;
+            const id = operationNode.data.projectid;
+            if (!nodeLocked(id) && name.includes(LOCK_TAG) && nodeHasChild(id)) { // Encryption added
+              alert("New node is set as " + LOCK_TAG + ". While new child nodes will be encrypted, existing ones will be kept unencrypted.");
+            } else if (nodeLocked(id) && !parentNodeLocked(id) && !name.includes(LOCK_TAG)) { // Encryption removed
+              alert(LOCK_TAG + " tag is removed from a node. While new child nodes will be no longer be encrypted, existing ones will be kept encrypted.");
+            }
+            break;
+          case "bulk_move":
+            var parent = operationNode.data.parentid !== "None" ? operationNode.data.parentid : null;
+            let nodeIds = JSON.parse(operationNode.data.projectids_json);
+            for (let nodeId of nodeIds) {
+              dataNodes.push({
+                id: nodeId,
+                parent: parent
+              });
+            }
+
+            // TODO: Auto encrypt
+            break;
+          case "delete":
+          default:
+            break;
+          
+        }
+      } catch (error) {
+        console.error("Error", error);
       }
-      if (previousName && isString(previousName) && previousName.length > 0) {
-        operationNode.undo_data.previous_name = await encrypt(previousName);
+
+      for (let dataNode of dataNodes) {
+        let id = dataNode.id;
+
+        // Update node
+        if (dataNode.parent !== undefined || dataNode.locked !== undefined) {
+          updateNode(id, dataNode.parent, dataNode.locked);
+        }
+
+        // Encrypt node data if the parent is locked as well
+        if (!parentNodeLocked(id)) {
+          continue;
+        }
+
+        let node = dataNode.node;
+        let contentTag = dataNode.contentTag;
+        if (node && contentTag && node[contentTag] && isString(node[contentTag]) && node[contentTag].length > 0) {
+          node[contentTag] = await encrypt(node[contentTag]);
+        }
       }
     } 
   }
   params.body = await decodeBody(body);
 
   return params;
+}
+
+function extractDataNodesFromProjects(projects, parent) {
+  let dataNodes = [];
+  for (let project of projects) {
+    let obj = {
+      id: project.id,
+      parent: parent,
+      node: project
+    };
+    if (project.nm) {
+      obj.locked = project.nm.includes(LOCK_TAG);
+      obj.contentTag = "nm";
+    }
+    dataNodes.push(obj);
+
+    if (project.ch && Array.isArray(project.ch)) {
+      dataNodes = dataNodes.concat(extractDataNodesFromProjects(project.ch, project.id));
+    }
+  }
+  return dataNodes;
 }
 
 // Modify response body
@@ -51,16 +138,21 @@ async function onPostFetch(url, params, response) {
   let responseData = await response.clone().json();
   for (let data of responseData.items) {
     if (!Array.isArray(data)) {
-      data.nm = await decrypt(data.nm);
+      await processTreeNode(data);
       continue;
     }
 
     for (let subData of data) {
-      subData.nm = await decrypt(subData.nm);
+      await processTreeNode(subData);
     }
   }
 
   return new Response(JSON.stringify(responseData));
+}
+
+async function processTreeNode(data) {
+  data.nm = await decrypt(data.nm);
+  updateNode(data.id, data.prnt, data.nm.includes(LOCK_TAG));
 }
 
 function endpointMatches(path, method, url, params) {
@@ -124,6 +216,60 @@ async function decrypt(data) {
   return decryptedData || data;
 }
 
+function updateNode(id, parent, locked) {
+  if (!id) {
+    return false;
+  }
+
+  let node = NODES[id] ?? {};
+  if (parent !== undefined) {
+    node.parent = parent;
+  }
+  if (locked !== undefined) {
+    node.locked = locked;
+  }
+
+  NODES[id] = node;
+
+  return true;
+}
+
+function nodeHasChild(id) {
+  for (let keyId in NODES) {
+    if (NODES[keyId].parent === id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function nodeLocked(id) {
+  if (!id || id === null) {
+    return false;
+  }
+
+  let node = NODES[id];
+  if (node === undefined) {
+    return false;
+  }
+  
+  if (node.locked) {
+    return true;
+  } else if (!node.parent || node.parent === null) {
+    return false;
+  }
+  return nodeLocked(node.parent);
+}
+
+function parentNodeLocked(id) {
+  let node = NODES[id];
+  if (node === undefined) {
+    return false;
+  }
+  let parentId = node.parent;
+
+  return nodeLocked(parentId);
+}
 
 // Encryption helper functions [https://github.com/bradyjoslin/webcrypto-example]
 const enc = new TextEncoder();
