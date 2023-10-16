@@ -40,26 +40,40 @@ async function onPreFetch(url, params) {
             dataNodes = dataNodes.concat(extractDataNodesFromProjects(projects, parent));
             break;
           case "edit":
-            dataNodes.push({
-              id: operationNode.data.projectid,
-              locked: operationNode.data.name.includes(LOCK_TAG),
-              contentTag: "name",
-              node: operationNode.data
-            });
-            dataNodes.push({
-              id: operationNode.data.projectid,
-              contentTag: "previous_name",
-              node: operationNode.undo_data
-            });
-  
-            // Warnings
-            // TODO: Auto encrypt
-            const name = operationNode.data.name;
-            const id = operationNode.data.projectid;
-            if (!nodeLocked(id) && name.includes(LOCK_TAG) && nodeHasChild(id)) { // Encryption added
-              alert("New node is set as " + LOCK_TAG + ". While new child nodes will be encrypted, existing ones will be kept unencrypted.");
-            } else if (nodeLocked(id) && !parentNodeLocked(id) && !name.includes(LOCK_TAG)) { // Encryption removed
-              alert(LOCK_TAG + " tag is removed from a node. While new child nodes will be no longer be encrypted, existing ones will be kept encrypted.");
+            if (operationNode.data.description !== undefined) {
+              dataNodes.push({
+                id: operationNode.data.projectid,
+                contentTag: "description",
+                node: operationNode.data
+              });
+              dataNodes.push({
+                id: operationNode.data.projectid,
+                contentTag: "previous_description",
+                node: operationNode.undo_data
+              });
+            }
+            if (operationNode.data.name !== undefined) {
+              dataNodes.push({
+                id: operationNode.data.projectid,
+                locked: operationNode.data.name.includes(LOCK_TAG),
+                contentTag: "name",
+                node: operationNode.data
+              });
+              dataNodes.push({
+                id: operationNode.data.projectid,
+                contentTag: "previous_name",
+                node: operationNode.undo_data
+              });
+
+              // Warnings
+              // TODO: Auto encrypt
+              const name = operationNode.data.name;
+              const id = operationNode.data.projectid;
+              if (!nodeLocked(id) && name.includes(LOCK_TAG) && nodeHasChild(id)) { // Encryption added
+                alert("New node is set as " + LOCK_TAG + ". While new child nodes will be encrypted, existing ones will be kept unencrypted.");
+              } else if (nodeLocked(id) && !parentNodeLocked(id) && !name.includes(LOCK_TAG)) { // Encryption removed
+                alert(LOCK_TAG + " tag is removed from a node. While new child nodes will be no longer be encrypted, existing ones will be kept encrypted.");
+              }
             }
             break;
           case "bulk_move":
@@ -152,7 +166,12 @@ async function onPostFetch(url, params, response) {
 }
 
 async function processTreeNode(data) {
-  data.nm = await decrypt(data.nm);
+  if (data.nm !== undefined) {
+    data.nm = await decrypt(data.nm);
+  }
+  if (data.no !== undefined) {
+    data.no = await decrypt(data.no);
+  }
   updateNode(data.id, data.prnt, data.nm.includes(LOCK_TAG));
 }
 
