@@ -1,5 +1,6 @@
 const DOMAIN = "https://workflowy.com";
 const LOCK_TAG = "#private";
+const PRE_ENC_CHAR = "_";
 var SECRET;
 var NODES = {};
 loadSecret();
@@ -208,10 +209,14 @@ function loadSecret() {
 
 async function encrypt(data) {
   const encryptedData = await encryptData(data, SECRET);
-  return encryptedData;
+  return PRE_ENC_CHAR + encryptedData;
 }
 
 async function decrypt(data) {
+  if (!data.startsWith(PRE_ENC_CHAR)) {
+    return data;
+  }
+  data = data.substring(PRE_ENC_CHAR.length);
   const decryptedData = await decryptData(data, SECRET);
   return decryptedData || data;
 }
