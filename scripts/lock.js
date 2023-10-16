@@ -30,14 +30,19 @@ async function onPreFetch(url, params) {
   for (let pushPollDataNode of body.push_poll_data) {
     for (let operationNode of pushPollDataNode.operations) {
       let dataNodes = [];
+      let stringifyJson = [];
 
       // Extract data nodes list
       try {
         switch (operationNode.type) {
           case "bulk_create":
             var parent = operationNode.data.parentid !== "None" ? operationNode.data.parentid : null;
-            let projects = JSON.parse(operationNode.data.project_trees);
-            dataNodes = dataNodes.concat(extractDataNodesFromProjects(projects, parent));
+            operationNode.data.project_trees = JSON.parse(operationNode.data.project_trees);
+            stringifyJson.push({
+              contentTag: "project_trees",
+              node: operationNode.data
+            });
+            dataNodes = dataNodes.concat(extractDataNodesFromProjects(operationNode.data.project_trees, parent));
             break;
           case "edit":
             if (operationNode.data.description !== undefined) {
@@ -115,6 +120,11 @@ async function onPreFetch(url, params) {
         if (node && contentTag && node[contentTag] && isString(node[contentTag]) && node[contentTag].length > 0) {
           node[contentTag] = await encrypt(node[contentTag]);
         }
+      }
+
+      for (let item of stringifyJson) {
+        let contentTag = item.contentTag;
+        item.node[contentTag] = JSON.stringify(item.node[contentTag]);
       }
     } 
   }
