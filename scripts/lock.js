@@ -28,12 +28,19 @@ async function onPreFetch(url, params) {
 
   let body = await encodeBody(params.body);
   for (let pushPollDataNode of body.push_poll_data) {
+    if (pushPollDataNode.operations === undefined) {
+      continue;
+    }
+
     for (let operationNode of pushPollDataNode.operations) {
       let dataNodes = [];
       let stringifyJson = [];
 
       // Extract data nodes list
       try {
+        if (operationNode.type === undefined) {
+          continue;
+        }
         switch (operationNode.type) {
           case "bulk_create":
             var parent = operationNode.data.parentid !== "None" ? operationNode.data.parentid : null;
