@@ -250,6 +250,9 @@ class Encrypter {
   }
 
   async encrypt(data) {
+    if (!this.SECRET || this.SECRET === null | this.SECRET === "null" || this.SECRET === "") {
+      return data;
+    }
     const encryptedData = await this.encryptData(data, this.SECRET);
     return PRE_ENC_CHAR + encryptedData;
   }
