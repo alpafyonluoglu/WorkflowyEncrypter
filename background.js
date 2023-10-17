@@ -7,8 +7,8 @@
 //     }
 // });
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg.query && msg.query == "getTabId") {
-        sendResponse(sender.tab.id);
-     }
-});
+// chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+//     if (msg.query && msg.query == "getTabId") {
+//         sendResponse(sender.tab.id);
+//      }
+// });

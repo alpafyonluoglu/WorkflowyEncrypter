@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Workflowy Encrypter",
   "version": "1.0",
-  "description": "Encrypt your Workflowy content",
+  "description": "Seamless client-side encryption for Workflowy",
   "author": "contact@alpafyonluoglu.dev",
   "icons": {
     "16": "/src/logo_16.png",
@@ -32,10 +32,6 @@
     }
   ],
   "permissions": [
-    "scripting",
-    "tabs",
-    "webRequest",
-    "storage"
   ],
   "host_permissions": [
     "*://*.workflowy.com/*"
