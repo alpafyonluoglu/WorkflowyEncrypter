@@ -592,10 +592,10 @@ async function onPreFetch(url, params) {
             const name = operation.data.name;
             const id = operation.data.projectid;
             if (!nodeTracker.nodeLocked(id) && name.includes(LOCK_TAG) && nodeTracker.nodeHasChild(id)) { // Encryption added
-              util.updateChildNodeEncryption(operation.data.projectid, true);
+              await util.updateChildNodeEncryption(operation.data.projectid, true);
             } else if (nodeTracker.nodeLocked(id) && !nodeTracker.parentNodeLocked(id) && !name.includes(LOCK_TAG) && nodeTracker.nodeHasChild(id)) { // Encryption removed
               if (confirm('Are you sure you want to remove the ' + LOCK_TAG + ' and decrypt all child nodes? This will send decrypted content to Workflowy servers.')) {
-                util.updateChildNodeEncryption(operation.data.projectid, false);
+                await util.updateChildNodeEncryption(operation.data.projectid, false);
               } else {
                 window.onbeforeunload = null;
                 location.reload();
@@ -617,11 +617,11 @@ async function onPreFetch(url, params) {
             // Process child nodes if exists
             const id = nodeId;
             if (nodeTracker.nodeLocked(parent) && !nodeTracker.nodeLocked(id)) { // Encryption added
-              util.updateChildNodeEncryption(id, true, true);
+              await util.updateChildNodeEncryption(id, true, true);
             } else if (!nodeTracker.nodeLocked(parent) && nodeTracker.parentNodeLocked(id)) { // Encryption removed
               if (decryptionAllowed || confirm('Are you sure you want to move selected node(s) under a non-encrypted node and decrypt their data? This will send decrypted content to Workflowy servers.')) {
                 decryptionAllowed = true;
-                util.updateChildNodeEncryption(id, false, true);
+                await util.updateChildNodeEncryption(id, false, true);
               } else {
                 window.onbeforeunload = null;
                 location.reload();
