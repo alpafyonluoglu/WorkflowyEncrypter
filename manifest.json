@@ -4,6 +4,12 @@
   "version": "1.0",
   "description": "Encrypt your Workflowy content",
   "author": "contact@alpafyonluoglu.dev",
+  "icons": {
+    "16": "/src/logo_16.png",
+    "32": "/src/logo_32.png",
+    "48": "/src/logo_48.png",
+    "128": "/src/logo_128.png"
+  },
   "action": {
     "default_title": "Workflowy Encrypter",
     "default_popup": "./popup/popup.html"
