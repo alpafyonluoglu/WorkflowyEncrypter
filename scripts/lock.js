@@ -555,14 +555,28 @@ async function onPreFetch(url, params) {
         case "bulk_move":
           var parent = operation.data.parentid !== "None" ? operation.data.parentid : null;
           let nodeIds = JSON.parse(operation.data.projectids_json);
+          let decryptionAllowed = false;
           for (let nodeId of nodeIds) {
             dataObj.push({
               id: nodeId,
               parent: parent
             });
-          }
 
-          // TODO: Auto encrypt
+            // Process child nodes if exists
+            const id = nodeId;
+            if (nodeTracker.nodeLocked(parent) && !nodeTracker.nodeLocked(id)) { // Encryption added
+              util.updateChildNodeEncryption(id, true, true);
+            } else if (!nodeTracker.nodeLocked(parent) && nodeTracker.parentNodeLocked(id)) { // Encryption removed
+              if (decryptionAllowed || confirm('Are you sure you want to move selected node(s) under a non-encrypted node and decrypt their data? This will send decrypted content to Workflowy servers.')) {
+                decryptionAllowed = true;
+                util.updateChildNodeEncryption(id, false, true);
+              } else {
+                window.onbeforeunload = null;
+                location.reload();
+                return false;
+              }
+            }
+          }
           break;
         case "delete":
         default:
