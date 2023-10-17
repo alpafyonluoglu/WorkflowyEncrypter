@@ -77,12 +77,23 @@ class NodeTracker {
 const nodeTracker = new NodeTracker();
 
 class Popup {
-  show(title, text, success = false) {
-    // For a native look, popup HTML and CSS are taken from the Workflowy's site
-    document.body.insertAdjacentHTML("afterbegin",`
+  PROCESS = {};
+  processActive = false;
+
+  show(title, text, relatedNodeId, success = false) {
+    this.PROCESS[relatedNodeId] = {
+      title: title,
+      text: text
+    };
+    if (!this.processActive) {
+      // Create popup
+      this.processActive = true;
+
+      // For a native look, popup HTML and CSS are taken from the Workflowy's site
+      document.body.insertAdjacentHTML("afterbegin",`
       <div class="_popup-container" id="_popup">
         <div class=" _popup">
-          <div class="messageContent  _message">
+          <div class="messageContent  _message" id="_message">
             <span><b>` + title + `</b> ` + text + `</span>
           </div>
           <span style="cursor: pointer; padding: 4px 4px 4px 0px;">
@@ -136,11 +147,22 @@ class Popup {
         background: transparent;
       }  
       </style>
-    `);
+      `);
+    }
   }
 
-  hide() {
+  hide(relatedNodeId) {
+    delete this.PROCESS[relatedNodeId];
+
+    for (let id in this.PROCESS) {
+      let title = this.PROCESS[id].title;
+      let text = this.PROCESS[id].text;
+      document.getElementById("_message").innerHTML = "<span><b>" + title + "</b> " + text + "</span>";
+      return;
+    }
+
     document.getElementById("_popup").remove();
+    this.processActive = false;
   }
 }
 const popup = new Popup();
@@ -378,7 +400,7 @@ class Util {
 
   async updateChildNodeEncryption(parentId, encrypt, processParentNode, processingParent = true) {
     if (processingParent) {
-      popup.show((encrypt ? "Encryption" : "Decryption") + " in progress...", "Keep the page open until this popup disappears.");
+      popup.show((encrypt ? "Encryption" : "Decryption") + " in progress...", "Keep the page open until this popup disappears.", parentId);
       await api.loadTree();
     }
 
@@ -445,7 +467,7 @@ class Util {
       // caches.delete("workflowy"); // FIXME:
 
       await api.removeTree();
-      popup.hide();
+      popup.hide(parentId);
     } else {
       return operations;
     }
