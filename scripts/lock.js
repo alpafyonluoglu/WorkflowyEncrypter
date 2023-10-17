@@ -33,7 +33,7 @@ class NodeTracker {
 
   getShareId(id) {
     let shareId = undefined;
-    while (shareId === undefined && (id !== null && this.NODES[id] !== undefined && this.NODES[id].parent !== null)) {
+    while (shareId === undefined && (id !== null && this.NODES[id] !== undefined)) {
       if (this.NODES[id].shareId !== undefined) {
         shareId = this.NODES[id].shareId;
       } else {
@@ -710,7 +710,7 @@ async function onPostFetch(url, params, response) {
   } else if (util.endpointMatches("/get_initialization_data", "GET", url, params)) {
     shared = [];
     for (let info of responseData.projectTreeData.auxiliaryProjectTreeInfos) {
-      if (info.rootProject.id) {
+      if (info.rootProject.id !== undefined) {
         nodeTracker.updateNode(info.rootProject.id, undefined, undefined, info.shareId);
       }
       shared.push(info.shareId);
