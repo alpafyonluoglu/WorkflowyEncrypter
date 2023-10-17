@@ -241,7 +241,7 @@ class Encrypter {
   loadSecret() {
     let secret = window.localStorage.getItem("lockSecret");
     if (!secret || secret === null | secret === "null" || secret === "") {
-      secret = window.prompt("Enter your key:");
+      secret = window.prompt("To complete WorkflowyEncrypter setup, enter your key below. If this is your first time using the extension, enter a new key and make sure to note it down; it will be impossible to recover your notes if you forget your key.");
       if (secret) {
         window.localStorage.setItem("lockSecret", secret);
       }
