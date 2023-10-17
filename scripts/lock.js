@@ -1,6 +1,7 @@
 const DOMAIN = "https://workflowy.com";
 const LOCK_TAG = "#private";
 const PRE_ENC_CHAR = "_";
+var shared = [];
 var crosscheckUserId = "";
 var clientId = "";
 var clientVersion = "";
@@ -10,7 +11,7 @@ var mostRecentOperationTransactionId = "";
 class NodeTracker {
   NODES = {};
 
-  updateNode(id, parent, locked) {
+  updateNode(id, parent, locked, shareId = undefined) {
     if (!id) {
       return false;
     }
@@ -22,11 +23,26 @@ class NodeTracker {
     if (locked !== undefined) {
       node.locked = locked;
     }
+    if (shareId !== undefined) {
+      node.shareId = shareId;
+    }
   
     this.NODES[id] = node;
     return true;
   }
-  
+
+  getShareId(id) {
+    let shareId = undefined;
+    while (shareId === undefined && (id !== null && this.NODES[id] !== undefined && this.NODES[id].parent !== null)) {
+      if (this.NODES[id].shareId !== undefined) {
+        shareId = this.NODES[id].shareId;
+      } else {
+        id = this.NODES[id].parent;
+      }
+    }
+    return shareId;
+  }
+
   nodeHasChild(id) {
     for (let keyId in this.NODES) {
       if (this.NODES[keyId].parent === id) {
@@ -168,25 +184,31 @@ class Popup {
 const popup = new Popup();
 
 class API {
-  TREE = [];
+  TREE = {};
 
   async loadTree() {
-    const treeDataRaw = await origFetch(DOMAIN + "/get_tree_data/");
+    this.removeTree();
+    
+    await this.loadSpecificTree("/get_tree_data/");
+    for (let shareId of shared) {
+      await this.loadSpecificTree("/get_tree_data/?share_id=" + shareId);
+    }
+  }
+
+  async loadSpecificTree(path) {
+    const treeDataRaw = await origFetch(DOMAIN + path);
     const treeData = await treeDataRaw.json();
-    let parsedData = {};
 
     for (let data of treeData.items) {
       if (!Array.isArray(data)) {
-        await this.addNodeToParsedData(parsedData, data);
+        await this.addNodeToParsedData(this.TREE, data);
         continue;
       }
 
       for (let item of data) {
-        await this.addNodeToParsedData(parsedData, item);
+        await this.addNodeToParsedData(this.TREE, item);
       }
     }
-    
-    this.TREE = parsedData;
   }
 
   async addNodeToParsedData(parsedData, item) {
@@ -201,7 +223,7 @@ class API {
   }
 
   async removeTree() {
-    this.TREE = [];
+    this.TREE = {};
   }
 }
 const api = new API();
@@ -442,7 +464,7 @@ class Util {
     }
 
     if (processingParent) {
-      let body = await util.decodeBody({
+      let rawBody = {
         client_id: clientId,
         client_version: clientVersion,
         crosscheck_user_id: crosscheckUserId,
@@ -451,7 +473,12 @@ class Util {
           operations: operations
         }],
         push_poll_id: null // Find what to send
-      });
+      };
+      let shareId = nodeTracker.getShareId(parentId);
+      if (shareId !== undefined) {
+        rawBody.push_poll_data[0].share_id = shareId;
+      }
+      let body = await util.decodeBody(rawBody);
 
       let response = await origFetch(DOMAIN + "/push_and_poll", {
         method: 'POST',
@@ -680,6 +707,17 @@ async function onPostFetch(url, params, response) {
     }
   
     return new Response(JSON.stringify(responseData));
+  } else if (util.endpointMatches("/get_initialization_data", "GET", url, params)) {
+    shared = [];
+    for (let info of responseData.projectTreeData.auxiliaryProjectTreeInfos) {
+      if (info.rootProject.id) {
+        nodeTracker.updateNode(info.rootProject.id, undefined, undefined, info.shareId);
+      }
+      shared.push(info.shareId);
+    }
+    return response;
   }
+
+
   return response;
 }
