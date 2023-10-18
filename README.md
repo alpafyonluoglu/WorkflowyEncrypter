@@ -11,6 +11,7 @@ After installing the extension, follow the steps below to get started:
 And that's it! Encrypted nodes will be readable only from web browsers that have WorkflowyEncrypter installed. Try to use a different device or disable the extension temporarily to see the magic!
 
 ## Installation
+Visit [Chrome Web Store](https://chrome.google.com/webstore/detail/workflowy-encrypter/fohbpcookddpmmhpmgoogodlanhikeib), or follow the steps below to install the extension from the source code manually.
 1. Download and extract the extension files.
 2. Visit the extensions page of your browser. ([chrome://extensions](chrome://extensions) for Google Chrome, [edge://extensions](edge://extensions) for Microsoft Edge)
 3. Enable developer mode.
@@ -25,7 +26,6 @@ As this is a third-party extension, full compatibility of the extension with the
 ## Known Issues and Upcoming Features
 - [Issue] Cache-related issue causing encrypted text to appear on the screen. (Temporary solution: force reload to clear cache)
 - [Feature] Encryption of uploaded files.
-- [Update] Providing access to the extension from the Chrom Web Store.
 
 ## Contributing
 All collaborators are welcome to contribute to the project in any constructive way as long as they comply with the code of conduct.
