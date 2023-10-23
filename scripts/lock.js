@@ -7,6 +7,7 @@ var clientId = "";
 var clientVersion = "";
 var wfBuildDate = "";
 var mostRecentOperationTransactionId = "";
+var cacheClearPerformed = false;
 
 class NodeTracker {
   NODES = {};
@@ -228,6 +229,45 @@ class API {
 }
 const api = new API();
 
+class Cache {
+  get(key, defVal = null) {
+    let cacheData = window.localStorage.getItem("lockCache");
+    cacheData = cacheData ? JSON.parse(cacheData) : {};
+    return cacheData[key] ? cacheData[key].val : defVal; 
+  }
+
+  set(key, val) {
+    let cacheData = window.localStorage.getItem("lockCache");
+    cacheData = (cacheData !== null && cacheData !== undefined) ? JSON.parse(cacheData) : {};
+    cacheData[key] = {
+      val: val,
+      lastAccessed: Date.now()
+    };
+    window.localStorage.setItem("lockCache", JSON.stringify(cacheData));
+  }
+
+  clear(light = true) {
+    if (!light) {
+      window.localStorage.setItem("lockCache", undefined);
+      return;
+    }
+
+    let cacheData = window.localStorage.getItem("lockCache");
+    cacheData = (cacheData !== null && cacheData !== undefined) ? JSON.parse(cacheData) : {};
+
+    let now = Date.now();
+    let lifeDuration = 1000 * 60 * 60 * 24 * 7; // 1 week
+    for (let key in cacheData) {
+      if (now - cacheData[key].lastAccessed > lifeDuration) {
+        delete cacheData[key];
+      }
+    }
+
+    window.localStorage.setItem("lockCache", JSON.stringify(cacheData));
+  }
+}
+const cache = new Cache();
+
 class Encrypter {
   SECRET;
   enc;
@@ -261,8 +301,16 @@ class Encrypter {
     if (!data.startsWith(PRE_ENC_CHAR)) {
       return data;
     }
+
+    let cachedDecryptedData = cache.get(data, null);
+    if (cachedDecryptedData !== null) {
+      return cachedDecryptedData;
+    }
+
+    let origData = data;
     data = data.substring(PRE_ENC_CHAR.length);
     const decryptedData = await this.decryptData(data, this.SECRET);
+    cache.set(origData, decryptedData);
     return decryptedData || data;
   }
 
@@ -675,19 +723,29 @@ async function onPostFetch(url, params, response) {
   }
 
   if (util.endpointMatches("/get_tree_data", "GET", url, params)) {
+    popup.show("Loading...", "Decrypting nodes", url);
+    let notArray = false;
     for (let data of responseData.items) {
-      if (!Array.isArray(data)) {
+      if (notArray || !Array.isArray(data)) {
+        notArray = true;
         await util.processNewTreeData(data);
         continue;
       }
-  
+
       for (let subData of data) {
         await util.processNewTreeData(subData);
       }
     }
-  
+
+    popup.hide(url);
     return new Response(JSON.stringify(responseData));
   } else if (util.endpointMatches("/push_and_poll", "POST", url, params)) {
+    // TODO: Find another point to clear cache later
+    if (!cacheClearPerformed) {
+      cache.clear();
+      cacheClearPerformed = true;
+    }
+
     for (let result of responseData.results) {
       if (result.server_run_operation_transaction_json === undefined) {
         continue;
@@ -708,7 +766,7 @@ async function onPostFetch(url, params, response) {
 
       result.server_run_operation_transaction_json = JSON.stringify(json);
     }
-  
+
     return new Response(JSON.stringify(responseData));
   } else if (util.endpointMatches("/get_initialization_data", "GET", url, params)) {
     shared = [];
@@ -720,7 +778,6 @@ async function onPostFetch(url, params, response) {
     }
     return response;
   }
-
 
   return response;
 }
