@@ -1,7 +1,7 @@
 # WorkflowyEncrypter
 Seamless client-side encryption for Workflowy
 
-WorkflowyEncrypter is a simple browser extension providing client-side encryption for Workflowy. It is built for Chromium-based browsers. While it is designed to be minimal and seamless from user's perspective, it ensures that all text-based content sent to Workflowy servers is encrypted with AES standards so that your sensitive content can **only be read by you**.
+WorkflowyEncrypter is a simple browser extension providing client-side encryption for Workflowy. It encrypts all data locally on your device, meaning no data is sent to a third-party server. While it is designed to be minimal and seamless from the user's perspective, it ensures that all text-based content sent to Workflowy servers is encrypted with AES standards so that your sensitive content can **only be read by you**.
 
 ## Getting started
 After installing the extension, follow the steps below to get started:
@@ -11,6 +11,7 @@ After installing the extension, follow the steps below to get started:
 And that's it! Encrypted nodes will be readable only from web browsers that have WorkflowyEncrypter installed. Try to use a different device or disable the extension temporarily to see the magic!
 
 ## Installation
+Visit [Chrome Web Store](https://chrome.google.com/webstore/detail/workflowy-encrypter/fohbpcookddpmmhpmgoogodlanhikeib), or follow the steps below to install the extension from the source code manually. The extension is built for Chromium-based browsers and currently does not support other browsers.
 1. Download and extract the extension files.
 2. Visit the extensions page of your browser. ([chrome://extensions](chrome://extensions) for Google Chrome, [edge://extensions](edge://extensions) for Microsoft Edge)
 3. Enable developer mode.
@@ -25,7 +26,6 @@ As this is a third-party extension, full compatibility of the extension with the
 ## Known Issues and Upcoming Features
 - [Issue] Cache-related issue causing encrypted text to appear on the screen. (Temporary solution: force reload to clear cache)
 - [Feature] Encryption of uploaded files.
-- [Update] Providing access to the extension from the Chrom Web Store.
 
 ## Contributing
 All collaborators are welcome to contribute to the project in any constructive way as long as they comply with the code of conduct.
