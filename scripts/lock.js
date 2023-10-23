@@ -53,6 +53,32 @@ class NodeTracker {
     return false;
   }
 
+  nodeHasLockTag(id){
+    if (!id) {
+      return false;
+    }
+  
+    return this.NODES[id].locked;
+  }
+
+  nodeParentHasLockTag(id){
+    let node = this.NODES[id];
+    if (node === undefined) {
+      return false;
+    }
+    let parentId = node.parent;
+
+    return this.nodeHasLockTag(parentId);
+  }
+
+  getParentId(id) {
+    let node = this.NODES[id];
+    if (node === undefined) {
+      return null;
+    }
+    return node.parent;
+  }
+
   getChildren(id) {
     let childNodeIds = [];
     for (let keyId in this.NODES) {
@@ -200,14 +226,16 @@ class API {
     const treeDataRaw = await origFetch(DOMAIN + path);
     const treeData = await treeDataRaw.json();
 
+    let notArray = false;
     for (let data of treeData.items) {
-      if (!Array.isArray(data)) {
+      if (notArray || !Array.isArray(data)) {
+        notArray = true;
         await this.addNodeToParsedData(this.TREE, data);
         continue;
       }
 
-      for (let item of data) {
-        await this.addNodeToParsedData(this.TREE, item);
+      for (let subData of data) {
+        await this.addNodeToParsedData(this.TREE, subData);
       }
     }
   }
@@ -294,6 +322,7 @@ class Encrypter {
       return data;
     }
     const encryptedData = await this.encryptData(data, this.SECRET);
+    cache.set(PRE_ENC_CHAR + encryptedData, data);
     return PRE_ENC_CHAR + encryptedData;
   }
   
@@ -471,15 +500,20 @@ class Util {
     nodeTracker.updateNode(data.id, data.prnt, data.nm.includes(LOCK_TAG));
   }
 
-  async updateChildNodeEncryption(parentId, encrypt, processParentNode, processingParent = true) {
+  async updateChildNodeEncryption(parentId, encrypt, processParentNode, processingParent = true, rootId = null) {
     if (processingParent) {
       popup.show((encrypt ? "Encryption" : "Decryption") + " in progress...", "Keep the page open until this popup disappears.", parentId);
+      rootId = parentId;
       await api.loadTree();
     }
 
     let operations = [];
 
-    if (!processingParent || processParentNode) {
+    let parentIdOfParent = nodeTracker.getParentId(parentId);
+    if (
+      (!processingParent || processParentNode) &&
+      (processingParent || parentIdOfParent === rootId || (parentIdOfParent !== rootId) && !nodeTracker.nodeHasLockTag(parentIdOfParent))
+      ) {
       let operation = {
         type: "edit",
         client_timestamp: null, // Find what to send
@@ -508,10 +542,12 @@ class Util {
       operations.push(operation);
     }
 
-    // Get children
-    let ids = nodeTracker.getChildren(parentId);
-    for (let id of ids) {
-      operations = operations.concat(await this.updateChildNodeEncryption(id, encrypt, false, false));
+    if (processingParent || parentIdOfParent === rootId || (parentIdOfParent !== rootId) && !nodeTracker.nodeHasLockTag(parentIdOfParent)) {
+      // Get children
+      let ids = nodeTracker.getChildren(parentId);
+      for (let id of ids) {
+        operations = operations.concat(await this.updateChildNodeEncryption(id, encrypt, false, false, rootId));
+      }
     }
 
     if (processingParent) {
