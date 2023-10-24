@@ -11,7 +11,7 @@ After installing the extension, follow the steps below to get started:
 And that's it! Encrypted nodes will be readable only from web browsers that have WorkflowyEncrypter installed. Try to use a different device or disable the extension temporarily to see the magic!
 
 ## Installation
-Visit [Chrome Web Store](https://chrome.google.com/webstore/detail/workflowy-encrypter/fohbpcookddpmmhpmgoogodlanhikeib), or follow the steps below to install the extension from the source code manually. The extension is built for Chromium-based browsers and currently does not support other browsers.
+Visit [Chrome Web Store](https://chrome.google.com/webstore/detail/workflowy-encrypter/fohbpcookddpmmhpmgoogodlanhikeib), or follow the steps below to install the extension from the source code manually. The extension is built for Chromium-based browsers; other browsers are not currently supported.
 1. Download and extract the extension files.
 2. Visit the extensions page of your browser. ([chrome://extensions](chrome://extensions) for Google Chrome, [edge://extensions](edge://extensions) for Microsoft Edge)
 3. Enable developer mode.
@@ -21,7 +21,7 @@ Visit [Chrome Web Store](https://chrome.google.com/webstore/detail/workflowy-enc
 Once the extension is installed, visit [workflowy.com](https://workflowy.com/) to complete the setup.
 
 ## Note
-As this is a third-party extension, full compatibility of the extension with the Workflowy website is not the case, and bugs may still be encountered. In those cases, simply force-reload the page by pressing Ctrl+Shift+R on Windows and Command+Shift+R on Mac. If the issue persists, do not hesitate to contact me, open an issue here on GitHub, or better yet, open a pull request if you are a developer. Contributions are much appreciated.
+As this is a third-party extension, full compatibility of the extension with the Workflowy website is not the case, and bugs may still be encountered. In those cases, simply force-reload the page by pressing Ctrl+Shift+R on Windows and Command+Shift+R on Mac. If the issue persists, do not hesitate to contact me, open an issue here on GitHub, or better yet, open a pull request if you are a developer. Contributions are much appreciated!
 
 ## Known Issues and Upcoming Features
 - [Feature] Encryption of uploaded files.
