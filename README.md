@@ -24,7 +24,6 @@ Once the extension is installed, visit [workflowy.com](https://workflowy.com/) t
 As this is a third-party extension, full compatibility of the extension with the Workflowy website is not the case, and bugs may still be encountered. In those cases, simply force-reload the page by pressing Ctrl+Shift+R on Windows and Command+Shift+R on Mac. If the issue persists, do not hesitate to contact me, open an issue here on GitHub, or better yet, open a pull request if you are a developer. Contributions are much appreciated.
 
 ## Known Issues and Upcoming Features
-- [Issue] Cache-related issue causing encrypted text to appear on the screen. (Temporary solution: force reload to clear cache)
 - [Feature] Encryption of uploaded files.
 
 ## Contributing

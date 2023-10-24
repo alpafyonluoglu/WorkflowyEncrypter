@@ -578,7 +578,6 @@ class Util {
         body: body,
         url: DOMAIN + "/push_and_poll"
       });
-      // caches.delete("workflowy"); // FIXME:
 
       await api.removeTree();
       popup.hide(parentId);
@@ -593,6 +592,20 @@ class Util {
     }
     val = encodeURIComponent(val).replaceAll("%20", "+");
     return val;
+  }
+
+  async decryptServerResponse(json) {
+    for (let op of json.ops) {
+      if (op.data === undefined) {
+        continue;
+      }
+      if (op.data.name) {
+        op.data.name = await encrypter.decrypt(op.data.name);
+      }
+      if (op.data.description) {
+        op.data.description = await encrypter.decrypt(op.data.description);
+      }
+    }
   }
 }
 const util = new Util();
@@ -783,24 +796,18 @@ async function onPostFetch(url, params, response) {
     }
 
     for (let result of responseData.results) {
-      if (result.server_run_operation_transaction_json === undefined) {
-        continue;
+      if (result.server_run_operation_transaction_json !== undefined) {
+        let json = JSON.parse(result.server_run_operation_transaction_json);
+        await util.decryptServerResponse(json);
+        result.server_run_operation_transaction_json = JSON.stringify(json);
       }
-
-      let json = JSON.parse(result.server_run_operation_transaction_json);
-      for (let op of json.ops) {
-        if (op.data === undefined) {
-          continue;
-        }
-        if (op.data.name) {
-          op.data.name = await encrypter.decrypt(op.data.name);
-        }
-        if (op.data.description) {
-          op.data.description = await encrypter.decrypt(op.data.description);
+      if (result.concurrent_remote_operation_transactions !== undefined) {
+        for (let i = 0; i < result.concurrent_remote_operation_transactions.length; i++) {
+          let json = JSON.parse(result.concurrent_remote_operation_transactions[i]);
+          await util.decryptServerResponse(json);
+          result.concurrent_remote_operation_transactions[i] = JSON.stringify(json);
         }
       }
-
-      result.server_run_operation_transaction_json = JSON.stringify(json);
     }
 
     return new Response(JSON.stringify(responseData));
