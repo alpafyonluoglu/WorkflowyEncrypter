@@ -657,7 +657,7 @@ class Util {
         }
 
         await this.updateChildNodeEncryption(id, true, false, flags);
-      } else if (nodes.isLocked(id, true) && !name.includes(LOCK_TAG) && nodes.hasChild(id)) { // Encryption removed
+      } else if (nodes.isLocked(id, true) && !nodes.isLocked(nodes.getParent(id)) && !name.includes(LOCK_TAG) && nodes.hasChild(id)) { // Encryption removed
         if (flags.includes(FLAGS.TRACK_ENCRYPTION_CHANGES)) {
           trackedChanges.push({
             id: id
