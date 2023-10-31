@@ -1,6 +1,6 @@
 # WorkflowyEncrypter
 
-![top-cropped](https://github.com/alpafyonluoglu/WorkflowyEncrypter/assets/60400842/30f0dfa9-15ec-4ac3-b00d-b94f51ef8ced)
+![Marquee Promo Tile](https://github.com/alpafyonluoglu/WorkflowyEncrypter/assets/60400842/30f0dfa9-15ec-4ac3-b00d-b94f51ef8ced)
 
 [![Chrome Web Store Version](https://img.shields.io/chrome-web-store/v/fohbpcookddpmmhpmgoogodlanhikeib)](https://chrome.google.com/webstore/detail/workflowy-encrypter/fohbpcookddpmmhpmgoogodlanhikeib)
 [![Chrome Web Store Users](https://img.shields.io/chrome-web-store/users/fohbpcookddpmmhpmgoogodlanhikeib)](https://chrome.google.com/webstore/detail/workflowy-encrypter/fohbpcookddpmmhpmgoogodlanhikeib)
