@@ -14,7 +14,7 @@ WorkflowyEncrypter is a simple browser extension providing client-side encryptio
 
 ## Getting started
 After installing the extension, follow the steps below to get started:
-1. Determine a password (also referred to as 'key') that will be used for encryption.
+1. Visit [workflowy.com](https://workflowy.com/) and determine a password (also referred to as 'key') that will be used for encryption.
 2. Add a `#private` tag to any node you want to secure. All sub-nodes of the selected node, including the ones you will add later, will be encrypted automatically.
 
 And that's it! Encrypted nodes will be readable only from web browsers that have WorkflowyEncrypter installed. Try to use a different device or disable the extension temporarily to see the magic!
@@ -28,8 +28,6 @@ Visit [Chrome Web Store](https://chrome.google.com/webstore/detail/workflowy-enc
 3. Enable developer mode.
 4. Click on "Load unpacked".
 5. Select the folder containing extension files.  
-
-Once the extension is installed, visit [workflowy.com](https://workflowy.com/) to complete the setup.
 
 [![Available in the Chrome Web Store](https://storage.googleapis.com/web-dev-uploads/image/WlD8wC6g8khYWPJUsQceQkhXSlv1/UV4C4ybeBTsZt43U4xis.png)](https://chrome.google.com/webstore/detail/workflowy-encrypter/fohbpcookddpmmhpmgoogodlanhikeib)
 
