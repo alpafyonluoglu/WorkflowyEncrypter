@@ -10,6 +10,9 @@
     "48": "/src/logo_48.png",
     "128": "/src/logo_128.png"
   },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'"
+  },
   "action": {
     "default_title": "Workflowy Encrypter",
     "default_popup": "./popup/popup.html"
