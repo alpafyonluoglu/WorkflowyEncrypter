@@ -64,7 +64,7 @@ class NodeTracker {
     delete this.NODES[id];
   }
 
-  get(id, property = null, recursiveCheck = false) {
+  get(id, property = null, recursiveCheck = false, ignored = []) {
     if (id === undefined || id === null) {
       return undefined;
     }
@@ -72,10 +72,10 @@ class NodeTracker {
     let node = this.NODES[id] ?? {};
     if (property === null) {
       return node;
-    } else if (node[property] !== undefined) {
+    } else if (node[property] !== undefined && !ignored.includes(node[property])) {
       return node[property];
     } else if (recursiveCheck) {
-      return this.get(node[PROPERTIES.PARENT], property, recursiveCheck);
+      return this.get(node[PROPERTIES.PARENT], property, recursiveCheck, ignored);
     }
     return undefined;
   }
@@ -89,7 +89,7 @@ class NodeTracker {
   }
 
   isLocked(id, direct = false) {
-    return this.get(id, PROPERTIES.LOCKED, !direct) ?? false;
+    return this.get(id, PROPERTIES.LOCKED, !direct, [false]) ?? false;
   }
 
   hasChild(id) {
@@ -691,7 +691,7 @@ class Util {
     await this.createEncryptionOperationForNode(id, encrypt, processParentNode, processingParent, rootId, operations);
 
     let parent = nodes.getParent(id);
-    if (processingParent || parent === rootId || (parent !== rootId) && !nodes.isLocked(parent, true)) {
+    if (processingParent || parent === rootId || (parent !== rootId && !nodes.isLocked(parent, true))) {
       // Get children
       let ids = nodes.getChildren(id);
       for (let id of ids) {
@@ -711,7 +711,7 @@ class Util {
     let parent = nodes.getParent(id);
     if (
       (!processingParent || processParentNode) &&
-      (processingParent || parent === rootId || (parent !== rootId) && !nodes.isLocked(parent, true))
+      (processingParent || parent === rootId || (parent !== rootId && !nodes.isLocked(parent, true)))
       ) {
       let operation = {
         type: "edit",
@@ -745,7 +745,7 @@ class Util {
   }
 
   async processMoveOperation(operation, dataObj, flags = []) {
-    var parent = operation.data.parentid !== "None" ? operation.data.parentid : null;
+    var parent = operation.data.parentid !== "None" ? operation.data.parentid : undefined;
     let ids = JSON.parse(operation.data.projectids_json);
     let decryptionAllowed = false;
     for (let id of ids) {
