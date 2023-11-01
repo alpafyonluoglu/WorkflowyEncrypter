@@ -113,7 +113,7 @@ class NodeTracker {
 }
 const nodes = new NodeTracker();
 
-class Popup {
+class Toast {
   PROCESS = {};
   processActive = false;
 
@@ -123,13 +123,13 @@ class Popup {
       text: text
     };
     if (!this.processActive) {
-      // Create popup
+      // Create toast message
       this.processActive = true;
 
-      // For a native look, popup HTML and CSS are taken from the Workflowy's site
+      // For a native look, toast HTML and CSS are taken from the Workflowy's site
       document.body.insertAdjacentHTML("afterbegin",`
-      <div class="_popup-container" id="_popup">
-        <div class=" _popup">
+      <div class="_toast-container" id="_toast">
+        <div class="_toast">
           <div class="messageContent  _message" id="_message">
             <span><b>` + title + `</b> ` + text + `</span>
           </div>
@@ -138,7 +138,7 @@ class Popup {
       </div>
   
       <style>
-      ._popup-container {
+      ._toast-container {
         position: fixed;
         left: 0px;
         right: 0px;
@@ -151,7 +151,7 @@ class Popup {
         -webkit-box-pack: center;
       }
   
-      ._popup {
+      ._toast {
         transition: transform 300ms ease 0s;
         font-size: 15px;
         padding: 8px 12px;
@@ -198,11 +198,11 @@ class Popup {
       return;
     }
 
-    document.getElementById("_popup").remove();
+    document.getElementById("_toast").remove();
     this.processActive = false;
   }
 }
-const popup = new Popup();
+const toast = new Toast();
 
 class API {
   TREE = {};
@@ -683,7 +683,7 @@ class Util {
       if (flags.includes(FLAGS.NO_FETCH)) {
         return true;
       }
-      popup.show((encrypt ? "Encryption" : "Decryption") + " in progress...", "Keep the page open until this popup disappears.", id);
+      toast.show((encrypt ? "Encryption" : "Decryption") + " in progress...", "Keep the page open until this message disappears.", id);
       rootId = id;
     }
 
@@ -701,7 +701,7 @@ class Util {
 
     if (processingParent) {
       await api.pushAndPoll(id, operations);
-      popup.hide(id);
+      toast.hide(id);
     } else {
       return operations;
     }
@@ -906,7 +906,7 @@ async function onPostFetch(url, params, response) {
   }
 
   if (util.endpointMatches("/get_tree_data", "GET", url, params)) {
-    popup.show("Loading...", "Decrypting nodes", url);
+    toast.show("Loading...", "Decrypting nodes", url);
     let notArray = false;
     for (let data of responseData.items) {
       if (notArray || !Array.isArray(data)) {
@@ -920,7 +920,7 @@ async function onPostFetch(url, params, response) {
       }
     }
 
-    popup.hide(url);
+    toast.hide(url);
     return new Response(JSON.stringify(responseData));
   } else if (util.endpointMatches("/push_and_poll", "POST", url, params)) {
     // TODO: Find another point to clear cache later
