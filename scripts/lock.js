@@ -33,6 +33,10 @@ const FLAGS = {
   TRACK_ENCRYPTION_CHANGES: 3
 };
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 class NodeTracker {
   NODES = {};
 
@@ -117,7 +121,71 @@ class Toast {
   PROCESS = {};
   processActive = false;
 
-  show(title, text, relatedNodeId, success = false) {
+  init(title = "", text = "", success = false) {
+    // For a native look, toast HTML and CSS are taken from the Workflowy's site
+    document.body.insertAdjacentHTML("afterbegin",`
+    <div class="_toast-container" id="_toast">
+      <div class="_toast" id="_toast2">
+        <div class="messageContent  _message" id="_message">
+          <span><b>` + title + `</b> ` + text + `</span>
+        </div>
+        <span style="cursor: pointer; padding: 4px 4px 4px 0px;">
+      </div>
+    </div>
+
+    <style>
+    ._toast-container {
+      overflow: hidden;
+      position: fixed;
+      left: 0px;
+      right: 0px;
+      bottom: 45px;
+      overflow: hidden;
+      z-index: 1002;
+      transition: left 0.25s ease 0s;
+      display: flex;
+      justify-content: center;
+      -webkit-box-pack: center;
+    }
+
+    ._toast {
+      transition: transform 300ms ease 0s;
+      font-size: 15px;
+      padding: 8px 12px;
+      text-align: center;
+      background-color: ` + (success ? "rgb(106, 206, 159)" : "rgb(131, 162, 206)") + `;
+      color: ` + (success ? "rgb(42, 49, 53)" : "rgb(44, 53, 49)") + `;
+      max-width: 60%;
+      border-radius: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+      display: flex;
+      align-items: center;
+      -webkit-box-align: center;
+      visibility: hidden;
+    }
+
+    ._message {
+      flex-grow: 1;
+      -webkit-box-flex: 1;
+      flex-shrink: 1;
+      line-height: 1.4;
+      padding: 0px 8px;
+      border-color: initial;
+      outline-color: initial;
+      background-image: initial;
+      background-color: transparent;
+      margin: 0;
+      border: 0;
+      outline: 0;
+      font-size: 100%;
+      vertical-align: baseline;
+      background: transparent;
+    }  
+    </style>
+    `);
+  }
+
+  async show(title, text, relatedNodeId) {
     this.PROCESS[relatedNodeId] = {
       title: title,
       text: text
@@ -125,70 +193,21 @@ class Toast {
     if (!this.processActive) {
       // Create toast message
       this.processActive = true;
+      document.getElementById("_message").innerHTML = "<span><b>" + title + "</b> " + text + "</span>";
 
-      // For a native look, toast HTML and CSS are taken from the Workflowy's site
-      document.body.insertAdjacentHTML("afterbegin",`
-      <div class="_toast-container" id="_toast">
-        <div class="_toast">
-          <div class="messageContent  _message" id="_message">
-            <span><b>` + title + `</b> ` + text + `</span>
-          </div>
-          <span style="cursor: pointer; padding: 4px 4px 4px 0px;">
-        </div>
-      </div>
-  
-      <style>
-      ._toast-container {
-        position: fixed;
-        left: 0px;
-        right: 0px;
-        bottom: 45px;
-        overflow: hidden;
-        z-index: 1002;
-        transition: left 0.25s ease 0s;
-        display: flex;
-        justify-content: center;
-        -webkit-box-pack: center;
-      }
-  
-      ._toast {
-        transition: transform 300ms ease 0s;
-        font-size: 15px;
-        padding: 8px 12px;
-        text-align: center;
-        background-color: ` + (success ? "rgb(106, 206, 159)" : "rgb(42, 49, 53)") + `;
-        color: ` + (success ? "rgb(42, 49, 53)" : "rgb(236, 236, 236)") + `;
-        max-width: 60%;
-        border-radius: 16px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-        display: flex;
-        align-items: center;
-        -webkit-box-align: center;
-      }
-  
-      ._message {
-        flex-grow: 1;
-        -webkit-box-flex: 1;
-        flex-shrink: 1;
-        line-height: 1.4;
-        padding: 0px 8px;
-        border-color: initial;
-        outline-color: initial;
-        background-image: initial;
-        background-color: transparent;
-        margin: 0;
-        border: 0;
-        outline: 0;
-        font-size: 100%;
-        vertical-align: baseline;
-        background: transparent;
-      }  
-      </style>
-      `);
+      let toastElement = document.getElementById("_toast2");
+      let height = toastElement.offsetHeight;
+      toastElement.style.marginBottom = "-" + height + "px";
+      await sleep(50);
+      toastElement.style.visibility = "visible";
+      toastElement.style.transition = "all .3s ease-in-out";
+      await sleep(50);
+      toastElement.style.marginBottom = "0px";
+      await sleep(300);
     }
   }
 
-  hide(relatedNodeId) {
+  async hide(relatedNodeId) {
     delete this.PROCESS[relatedNodeId];
 
     for (let id in this.PROCESS) {
@@ -198,11 +217,19 @@ class Toast {
       return;
     }
 
-    document.getElementById("_toast").remove();
+    // document.getElementById("_toast").remove();
+    let toastElement = document.getElementById("_toast2");
+    let height = toastElement.offsetHeight;
+    toastElement.style.marginBottom = "-" + height + "px";
+    await sleep(300);
+    toastElement.style.visibility = "hidden";
+    toastElement.style.transition = "all 0s";
+    
     this.processActive = false;
   }
 }
 const toast = new Toast();
+toast.init();
 
 class API {
   TREE = {};
@@ -683,7 +710,7 @@ class Util {
       if (flags.includes(FLAGS.NO_FETCH)) {
         return true;
       }
-      toast.show((encrypt ? "Encryption" : "Decryption") + " in progress...", "Keep the page open until this message disappears.", id);
+      await toast.show((encrypt ? "Encryption" : "Decryption") + " in progress...", "Keep the page open until this message disappears.", id);
       rootId = id;
     }
 
@@ -701,7 +728,7 @@ class Util {
 
     if (processingParent) {
       await api.pushAndPoll(id, operations);
-      toast.hide(id);
+      await toast.hide(id);
     } else {
       return operations;
     }
@@ -906,7 +933,7 @@ async function onPostFetch(url, params, response) {
   }
 
   if (util.endpointMatches("/get_tree_data", "GET", url, params)) {
-    toast.show("Loading...", "Decrypting nodes", url);
+    await toast.show("Loading...", "Decrypting nodes", url);
     let notArray = false;
     for (let data of responseData.items) {
       if (notArray || !Array.isArray(data)) {
@@ -920,7 +947,7 @@ async function onPostFetch(url, params, response) {
       }
     }
 
-    toast.hide(url);
+    await toast.hide(url);
     return new Response(JSON.stringify(responseData));
   } else if (util.endpointMatches("/push_and_poll", "POST", url, params)) {
     // TODO: Find another point to clear cache later
