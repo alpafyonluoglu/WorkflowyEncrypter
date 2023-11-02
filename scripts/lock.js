@@ -932,7 +932,7 @@ class PopupHelper {
         },
         {
           title: "Use Your Key",
-          text: "Now that your key is ready, you can use it seamlessly just by adding a #private tag to any node you want to secure. All sub-nodes of the selected node, including the ones you will add later, will be encrypted automatically.",
+          text: "Now that your key is ready, you can use it seamlessly just by adding a " + LOCK_TAG + " tag to any node you want to secure. All sub-nodes of the selected node, including the ones you will add later, will be encrypted automatically.",
           html: [{
             position: "afterbegin",
             content: `
@@ -1731,7 +1731,7 @@ async function onPostFetch(url, params, response) {
       }
     }
     if (attentionNeeded.length > 0) {
-      alert("Heads up! " + LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers: \n- " + attentionNeeded.join("\n- "))
+      await popup.create("Heads Up!", LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers: <br>- " + attentionNeeded.join("<br>- "), [], true);
     }
 
     return new Response(JSON.stringify(responseData));
