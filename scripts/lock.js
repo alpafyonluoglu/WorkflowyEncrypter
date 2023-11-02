@@ -143,6 +143,7 @@ class NodeTracker {
 }
 const nodes = new NodeTracker();
 
+// TODO: Delayed toast; show toast 100ms after delay only if hide() is not called in that time
 class Toast {
   PROCESS = {};
   processActive = false;
@@ -257,6 +258,7 @@ class Toast {
 const toast = new Toast();
 toast.init();
 
+// TODO: Popup focus navigation via keyboard improvement
 class Popup {
   static resolve = null;
   static args = null;
@@ -901,7 +903,9 @@ class PopupHelper {
                 setRandomText(text2)
               }, 7 * 1000);
             }
-            setRandomText(text2);
+            setTimeout(() => {
+              setRandomText(text2)
+            }, 6 * 1000);
           }
         },
         {
