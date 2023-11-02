@@ -33,8 +33,33 @@ const FLAGS = {
   TRACK_ENCRYPTION_CHANGES: 3
 };
 
+const OUTCOMES = {
+  IGNORE: -1,
+  CANCEL: 0,
+  PREV: 1,
+  NEXT: 2,
+  COMPLETE: 3,
+  CUSTOM: 4
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getInternalVar(key) {
+  return document.getElementById("we-internal-" + key).getAttribute('value');
+}
+
+function randomStr(length) { // [https://stackoverflow.com/a/1349426]
+  let result = '';
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const charactersLength = characters.length;
+  let counter = 0;
+  while (counter < length) {
+    result += characters.charAt(Math.floor(Math.random() * charactersLength));
+    counter += 1;
+  }
+  return result;
 }
 
 class NodeTracker {
@@ -231,6 +256,730 @@ class Toast {
 const toast = new Toast();
 toast.init();
 
+class Popup {
+  static resolve = null;
+  static args = null;
+  
+  init() {
+    // TODO: Input box style is not same as the native input boxes
+    document.body.insertAdjacentHTML("afterbegin",`
+      <style>
+      ._popup-container {
+        visibility: hidden;
+        position: fixed;
+        width: 100%;
+        height: 100%;
+        left: 0px;
+        right: 0px;
+        top: 0px;
+        bottom: 0px;
+        overflow: hidden;
+        z-index: 1003;
+        display: flex;
+        justify-content: center;
+        -webkit-box-pack: center;
+        background-color: rgba(0, 0, 0, 0.2);
+      }
+  
+      ._popup {
+        font-size: 15px;
+
+        position: absolute;
+        margin-top: 10vh;
+        max-height: calc(100% - 20vh);
+        width: calc((100% - 36px) - 36px);
+        flex-shrink: 0;
+        padding: 36px;
+        box-sizing: border-box;
+        max-width: 576px;
+        overflow: auto;
+        border-radius: 6px;
+        box-shadow: rgba(0, 0, 0, 0.12) 0px 2px 20px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        transition: transform 300ms ease 0s, opacity 300ms ease 0s, height 1s ease-in-out 0s;
+
+        background: rgb(255, 255, 255);
+        color: rgb(42, 49, 53);
+        border: 1px solid rgb(220, 224, 226);
+      }
+
+      ._popup-content {
+        transition: all .3s ease-in-out;
+        opacity: 1;
+      }
+
+      ._popup-title {
+        margin-top: 0px;
+        margin-bottom: 0px;
+        font-size: 26px;
+        font-weight: bold;
+        line-height: normal;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        margin-right: 40px;
+        position: relative;
+        top: -4px;
+      }
+  
+      ._popup-text {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        outline: 0;
+        font-size: 100%;
+        vertical-align: baseline;
+        background: transparent;
+        margin-top: 12px;
+        line-height: 20px;
+        margin-bottom: 24px;
+      }
+
+      ._input {
+        display: flex;
+        margin-top: 12px;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        outline: 0;
+        font-size: 100%;
+        vertical-align: baseline;
+        background: transparent;
+      }
+
+      ._input-text {
+        min-width: 96px;
+        font-size: 15px;
+        line-height: 30px;
+      }
+
+      ._input-box-container {
+        display: flex;
+        flex-direction: column;
+        border: 1px solid rgb(220, 224, 226);
+        box-sizing: border-box;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      ._input-box {
+        text-transform: none;
+        text-indent: 0px;
+        text-shadow: none;
+        text-align: start;
+        -webkit-rtl-ordering: logical;
+        cursor: text;
+        user-select: text;
+
+        text-rendering: auto;
+        letter-spacing: normal;
+        word-spacing: normal;
+        line-height: normal;
+        text-transform: none;
+        text-indent: 0px;
+        text-shadow: none;
+        display: inline-block;
+        text-align: start;
+        appearance: auto;
+        -webkit-rtl-ordering: logical;
+        cursor: text;
+        background-color: field;
+        margin: 0em;
+        padding: 1px 0px;
+        border-width: 2px;
+        border-style: inset;
+        border-color: -internal-light-dark(rgb(118, 118, 118), rgb(133, 133, 133));
+        border-image: initial;
+        padding-block: 1px;
+        padding-inline: 2px;
+
+        writing-mode: horizontal-tb !important;
+        padding-block: 1px;
+        padding-inline: 2px;
+
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        appearance: none;
+        border-radius: 4px;
+        border: 1px solid rgb(220, 224, 226);
+        outline: none;
+        background: rgb(255, 255, 255);
+        color: rgb(42, 49, 53);
+        margin: 0px;
+        padding: 8px;
+        font-family: inherit;
+        font-size: 12px;
+        line-height: 15px;
+        -webkit-tap-highlight-color: transparent;
+
+        
+      }
+
+      ._popup-buttons {
+        text-align: center;
+        margin-top: 24px;
+      }
+
+      ._popup-button {
+        text-rendering: auto;
+        letter-spacing: normal;
+        word-spacing: normal;
+        text-transform: none;
+        text-indent: 0px;
+        text-shadow: none;
+        align-items: flex-start;
+        margin: 0em;
+        padding-block: 1px;
+        padding-inline: 6px;
+        
+        display: inline-block;
+        position: relative;
+        appearance: none;
+        border: none;
+        outline: none;
+        border-radius: 12px;
+        box-sizing: border-box;
+        line-height: 16px;
+        padding: 4px 12px;
+        background: rgb(236, 238, 240);
+        color: rgb(42, 49, 53);
+        font-family: inherit;
+        font-weight: 500;
+        font-size: 12px;
+        text-align: center;
+        text-decoration: none;
+        cursor: default;
+        -webkit-tap-highlight-color: transparent;
+      }
+      ._popup-button:hover {
+        background: rgb(221, 224, 226);
+      }
+      </style>
+      `);
+  }
+
+  create(title, text, buttons = [], cancellable = true, args = {}) {
+    return new Promise((resolve, reject) => {
+      Popup.resolve = resolve;
+      Popup.args = args;
+
+      // For a native look, popup HTML and CSS are taken from the Workflowy's site
+      // Create popup
+      document.body.insertAdjacentHTML("afterbegin",`
+      <div class="_popup-container" id="_popup">
+        <div class="_popup">
+          <div class="_popup-content" id="_popup-content"></div>
+        </div>
+      </div>
+      `);
+
+      // Create page from function args
+      if (!args.pages || !Array.isArray(args.pages) || args.pages.length === 0) {
+        args.pages = [{
+          title: title,
+          text: text,
+          buttons: buttons
+        }];
+      }
+
+      if (args.style) {
+        document.body.insertAdjacentHTML("afterbegin",`
+        <style>` + args.style + `</style>
+        `); 
+      }
+
+      Popup.args.pageCount = args.pages.length;
+      Popup.args.currentPage = 0;
+      this.setPage(0);
+      this.show();
+
+      if (cancellable) {
+        document.getElementById("_popup").addEventListener('click', function(evt) {
+          if ( evt.target != this ) return false;
+          Popup.onClick(null, OUTCOMES.CANCEL);
+        });
+      }
+    });
+  }
+
+  async show() {
+    let popupElement = document.getElementById("_popup");
+    popupElement.style.visibility = "visible";
+    popupElement.style.opacity = "0";
+    popupElement.style.transition = "all .3s ease-in-out";
+    await sleep(300);
+    popupElement.style.opacity = "1";
+    await sleep(300);
+  }
+
+  async setPage(pageIndex) {
+    const pageCount = Popup.args.pageCount;
+    const endOfPages = pageIndex === pageCount - 1;
+    const page = Popup.args.pages[pageIndex];
+
+    let content = document.getElementById("_popup-content");
+    if (content.children.length !== 0) {
+      content.style.opacity = "0";
+      await sleep(300);
+      content.replaceChildren();
+    }
+
+    // Load page content
+    const title = page["title"] ?? "";
+    const text = page["text"] ?? "";
+    const input = page["input"] ?? null;
+    const buttons = page["buttons"] ?? [];
+    const htmlList = page["html"] ?? [];
+    const script = page["script"] ?? (() => {});
+
+    // Title, text
+    content.insertAdjacentHTML("afterbegin", `
+    <p class="_popup-title">` + title + `</p>
+    <p class="_popup-text">` + text + `</p>
+    `);
+
+    // Input
+    if (input !== null) {
+      content.insertAdjacentHTML("beforeend", `
+      <div class="_input">
+        <p class="_input-text">` + input["label"] + `</p>
+        <div class="_input-box-container">
+          <input class="_input" type="text" id="_input-box" placeholder="` + input["placeholder"] + `">
+        </div>
+      </dib>
+      `);
+    }
+
+    // Buttons
+    content.insertAdjacentHTML("beforeend", `
+    <div class="_popup-buttons" id="_popup-buttons"></div>
+    `);
+    let buttonsElement = document.getElementById("_popup-buttons");
+    if (buttons.length === 0) {
+      buttons.push({
+        operation: (endOfPages ? OUTCOMES.COMPLETE : OUTCOMES.NEXT),
+        text: (endOfPages ? "Close" : "Next")
+      })
+    }
+    
+    for (let i = 0; i < buttons.length; i++) {
+      const button = buttons[i];
+      buttonsElement.insertAdjacentHTML("beforeend", `
+      <button class="_popup-button" type="button" data-id="` + i + `" onClick="onPopupClick(this, ` + button.operation + `)">` + button.text + `</button>
+      `);
+    }
+
+    // Custom HTML
+    if (htmlList.length > 0) {
+      for (let htmlItem of htmlList) {
+        content.insertAdjacentHTML(htmlItem.position, htmlItem.content);
+      }
+    }
+
+    await sleep(100);
+    script();
+
+
+    Popup.args.currentPage = pageIndex;
+    content.style.opacity = "1";
+    await sleep(300);
+  }
+
+  static async onClick(element, outcome) {
+    const currentPage = Popup.args.currentPage;
+    if (outcome === OUTCOMES.CUSTOM) {
+      let id = element.getAttribute("data-id");
+      outcome = (await Popup.args.pages[currentPage].buttons[id].onClick() ?? outcome);
+    }
+
+    switch (outcome) {
+      case OUTCOMES.IGNORE:
+        return;
+      case OUTCOMES.PREV:
+        popup.setPage(currentPage - 1);
+        break;
+      case OUTCOMES.NEXT:
+        popup.setPage(currentPage + 1);
+        break;
+      case OUTCOMES.CANCEL:
+      case OUTCOMES.COMPLETE:
+      default:
+        popup.hide(outcome);
+        break;
+    }
+  }
+
+  async hide(outcome = OUTCOMES.CANCEL) {
+    let popupElement = document.getElementById("_popup");
+    popupElement.style.opacity = "0";
+    await sleep(300);
+    document.getElementById("_popup").remove();
+
+    let resolve = Popup.resolve;
+    Popup.resolve = null;
+    Popup.args = null;
+    resolve(outcome);
+  }
+}
+const popup = new Popup();
+popup.init();
+
+function onPopupClick(element, outcome) {
+  Popup.onClick(element, outcome);
+}
+
+class PopupHelper {
+  async welcome() {
+    await sleep(2000);
+    return await popup.create(null, null, [], false, {
+      style: `
+      ._html1-box {
+        position: relative;
+        margin: 0 auto;
+        align-items: center;
+        text-align: center;
+        border-radius: 6px;
+        padding: 48px 0;
+        margin-bottom: 24px;
+        overflow: hidden;
+      }
+    
+      ._html3-box {
+        padding: 0;
+      }
+    
+      ._html1-logo {
+          width: 64px;
+          box-sizing: border-box;
+          padding: 8px;
+      }
+    
+      ._html2-logo {
+        padding: 0;
+      }
+    
+      ._html3-logo {
+        height: 160px;
+        width: auto;
+        padding: 32px;
+      }
+    
+      ._html3-logo-w {
+        visibility: visible;
+        animation: anim-logo 2s forwards ease-out;
+        animation-delay: .7s;
+      }
+    
+      @keyframes anim-logo {
+        0%   {
+          transform: scale(1);
+        }
+        100% {
+          transform: scale(1.5);
+        }
+      }
+    
+      .inline {
+          display: inline-block;
+          vertical-align: middle;
+      }
+    
+      ._html1-workflowy-title {
+          color: #333;
+          font-family: Open Sans, sans-serif;
+          font-size: 24px;
+          font-weight: 700;
+          
+          line-height: 64px;
+          -webkit-text-size-adjust: 100%;
+      }
+    
+      ._html1-title {
+          color: #333;
+          font-family: Open Sans, sans-serif;
+          font-size: 28px;
+          line-height: 64px;
+          font-weight: 400;
+          cursor: default;
+      }
+    
+      ._html1-title-white {
+        color: #fafafa;
+        text-align: left;
+        opacity: 0.8;
+    }
+    
+      .marginLeft {
+        margin-left: 8px;
+      }
+    
+      ._html1-blue-content {
+        position: relative;
+        align-items: center;
+        text-align: center;
+        width: 500px;
+        height: 500px;
+        padding: 48px 0;
+        
+        margin-left: 0;
+        margin-top: 0;
+        transition: 0s;
+        animation: anim-blue-content 7s infinite ease;
+      }
+    
+      @keyframes anim-blue-content {
+        0%   {
+          margin-left: 0px;
+          margin-top: 0px;
+        }
+        20%   {
+          margin-left: 0px;
+          margin-top: 0px;
+        }
+        30% {
+          margin-left: 500px;
+          margin-top: 500px;
+        }
+        40% {
+          margin-left: 500px;
+          margin-top: 500px;
+        }
+        45%   {
+          margin-left: 0px;
+          margin-top: 0px;
+        }
+        100%   {
+          margin-left: 0px;
+          margin-top: 0px;
+        }
+      }
+    
+      ._html3-blue-content {
+        visibility: visible;
+        animation: anim-blue-content3 1s forwards ease;
+        animation-delay: .7s;
+      }
+    
+      @keyframes anim-blue-content3 {
+        0%   {
+          margin-left: 0px;
+          margin-top: 0px;
+        }
+        100% {
+          margin-left: 500px;
+          margin-top: 500px;
+        }
+      }
+    
+      ._html1-blue {
+        position: absolute;
+        background-color: rgb(171, 190, 209);
+        border-radius: 50%;
+        width: 1000px;
+        height: 1000px;
+        padding: 0;
+        margin: 0;
+        left: 0;
+        top: 0;
+        margin-left: 0;
+        margin-top: 0;
+        display: block;
+        animation: anim-blue 7s infinite ease;
+        overflow: hidden;
+      }
+    
+      @keyframes anim-blue {
+        0%   {
+          max-width: 0px;
+          max-height: 0px;
+          margin-left: 0px;
+          margin-top: 0px;
+        }
+        20%   {
+          max-width: 0px;
+          max-height: 0px;
+          margin-left: 0px;
+          margin-top: 0px;
+        }
+        30% {
+          max-width: 1000px;
+          max-height: 1000px;
+          margin-left: -500px;
+          margin-top: -500px;
+        }
+        40% {
+          max-width: 1000px;
+          max-height: 1000px;
+          margin-left: -500px;
+          margin-top: -500px;
+        }
+        45%   {
+          max-width: 0px;
+          max-height: 0px;
+          margin-left: 0px;
+          margin-top: 0px;
+        }
+        100%   {
+          max-width: 0px;
+          max-height: 0px;
+          margin-left: 0px;
+          margin-top: 0px;
+        }
+      }
+    
+      ._html3-blue {
+        visibility: hidden;
+        animation: anim-blue2 1s forwards ease;
+        animation-delay: .7s;
+      }
+    
+      @keyframes anim-blue2 {
+        0%   {
+          visibility: visible;
+          max-width: 0px;
+          max-height: 0px;
+          margin-left: 0px;
+          margin-top: 0px;
+        }
+        100% {
+          visibility: visible;
+          max-width: 1000px;
+          max-height: 1000px;
+          margin-left: -500px;
+          margin-top: -500px;
+        }
+      }
+      `,
+      pages: [
+        {
+          title: "Let's Secure Your Data",
+          text: "Welcome to WorkflowyEncrypter! To enable seamless client-side encryption, follow this brief setup and let us help you secure your data.",
+          html: [{
+            position: "afterbegin",
+            content: `
+            <div class="_html1-box" id="_html1-box">
+              <img class="_html1-logo inline" id="_html1-logo" src="` + getInternalVar("logoUrl") + `" alt="logo">
+              <p class="_html1-title inline" id="we-text1"><span class="_html1-workflowy-title">Workflowy</span> Encrypter</p>
+              <div class="_html1-blue" id="_blue">
+                <div class="_html1-blue-content" id="_blue-content">
+                  <img class="_html1-logo inline absolute" src="` + getInternalVar("logoWUrl") + `" alt="logo">
+                  <p class="_html1-title _html1-title-white inline" id="we-text2">ciSw6deyI9hOthlspe</p>
+                </div>
+              </div>
+            </div>
+            `
+          }],
+          script: () => {
+            const text1 = document.getElementById("we-text1");
+            const text2 = document.getElementById("we-text2");
+            const blue = document.getElementById("_blue");
+            const blueContent = document.getElementById("_blue-content");
+            const box = document.getElementById("_html1-box");
+            const logo = document.getElementById("_html1-logo");
+            var boxRect = box.getBoundingClientRect(),
+              elemRect = logo.getBoundingClientRect(),
+              offsetTop   = elemRect.top - boxRect.top,
+              offsetLeft   = elemRect.left - boxRect.left;
+    
+            blue.style.left = offsetLeft + (64/2) - 1 + "px";
+            blue.style.top = offsetTop + (64/2) + "px";
+            blueContent.style.left = (-offsetLeft - (64/2) + 1) + "px";
+            blueContent.style.top = (-offsetTop - (64/2)) + "px";
+            text2.style.width = text1.offsetWidth + "px";
+            
+            let setRandomText = (text2) => {
+              text2.textContent = PRE_ENC_CHAR + randomStr(15 - PRE_ENC_CHAR.length);
+              setTimeout(() => {
+                setRandomText(text2)
+              }, 7 * 1000);
+            }
+            setRandomText(text2);
+          }
+        },
+        {
+          title: "Craft Your Key",
+          text: "Register your key that will be used to encrypt your data. If this is your first time here, just enter a new key and make sure to note it down. <b>It will be impossible to recover your encrypted data if you forget your key.</b>",
+          input: {
+            label: "Key",
+            placeholder: "secret"
+          },
+          buttons: [{
+            operation: OUTCOMES.CUSTOM,
+            text: "Next",
+            onClick: async function() {
+              let key = document.getElementById("_input-box").value;
+              if (key.length === 0) {
+                toast.show("Key cannot be empty.", "Provide a valid key and try again.", "KEY");
+                await sleep(3000);
+                toast.hide("KEY");
+                return OUTCOMES.IGNORE;
+              } else {
+                window.localStorage.setItem("lockSecret", key);
+                return OUTCOMES.NEXT;
+              }
+            }
+          }],
+          html: [{
+            position: "afterbegin",
+            content: `
+            <div class="_html1-box" id="_html1-box">
+              <img class="_html1-logo _html2-logo inline" src="` + getInternalVar("keyUrl") + `" alt="key icon">
+            </div>
+            `
+          }]
+        },
+        {
+          title: "Use Your Key",
+          text: "Now that your key is ready, you can use it seamlessly just by adding a #private tag to any node you want to secure. All sub-nodes of the selected node, including the ones you will add later, will be encrypted automatically.",
+          html: [{
+            position: "afterbegin",
+            content: `
+            <div class="_html1-box _html3-box" id="_html1-box">
+              <img class="_html1-logo _html3-logo inline" src="` + getInternalVar("ss1Url") + `" alt="screenshot">
+            </div>
+            `
+          }]
+        },
+        {
+          title: "That's It!",
+          text: "Encrypted nodes will be readable only from web browsers that have WorkflowyEncrypter installed. Try to use a different device or disable the extension temporarily to see the magic!",
+          html: [{
+            position: "afterbegin",
+            content: `
+            <div class="_html1-box" id="_html1-box">
+              <img class="_html1-logo inline" id="_html1-logo" src="` + getInternalVar("logoUrl") + `" alt="logo">
+              <div class="_html1-blue _html3-blue" id="_blue">
+                <div class="_html1-blue-content _html3-blue-content" id="_blue-content">
+                  <img class="_html1-logo _html3-logo-w inline absolute" src="` + getInternalVar("logoWUrl") + `" alt="logo">
+                </div>
+              </div>
+            </div>
+            `
+          }],
+          script: () => {
+            const blue = document.getElementById("_blue");
+            const blueContent = document.getElementById("_blue-content");
+            const box = document.getElementById("_html1-box");
+            const logo = document.getElementById("_html1-logo");
+            var boxRect = box.getBoundingClientRect(),
+              elemRect = logo.getBoundingClientRect(),
+              offsetTop   = elemRect.top - boxRect.top,
+              offsetLeft   = elemRect.left - boxRect.left;
+    
+            blue.style.left = offsetLeft + (64/2) - 1 + "px";
+            blue.style.top = offsetTop + (64/2) + "px";
+            blueContent.style.left = (-offsetLeft - (64/2) + 1) + "px";
+            blueContent.style.top = (-offsetTop - (64/2)) + "px";
+          }
+        }
+      ]
+    });
+  }
+}
+const popupHelper = new PopupHelper();
+
 class API {
   TREE = {};
 
@@ -357,13 +1106,12 @@ class Encrypter {
     this.dec = new TextDecoder();
   }
 
-  loadSecret() {
+  async loadSecret() {
     let secret = window.localStorage.getItem("lockSecret");
     if (!secret || secret === null | secret === "null" || secret === "") {
-      secret = window.prompt("To complete WorkflowyEncrypter setup, enter your key below. If this is your first time using the extension, enter a new key and make sure to note it down; it will be impossible to recover your notes if you forget your key.");
-      if (secret) {
-        window.localStorage.setItem("lockSecret", secret);
-      }
+      await popupHelper.welcome();
+      window.onbeforeunload = null;
+      location.reload();
     }
     this.SECRET = secret;
   }
@@ -379,6 +1127,8 @@ class Encrypter {
   
   async decrypt(data) {
     if (!data.startsWith(PRE_ENC_CHAR)) {
+      return data;
+    } else if (!this.SECRET || this.SECRET === null | this.SECRET === "null" || this.SECRET === "") {
       return data;
     }
 

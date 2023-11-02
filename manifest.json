@@ -30,7 +30,7 @@
   ],
   "web_accessible_resources": [
     { 
-      "resources": ["/scripts/lock.js", "/src/logo_128.png"],
+      "resources": ["/scripts/lock.js", "/src/logo_128.png", "/src/logo_w_128.png", "/src/key_128.png", "/src/ss1.png"],
       "matches": ["*://*.workflowy.com/*"]
     }
   ],

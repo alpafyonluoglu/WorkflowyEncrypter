@@ -1,5 +1,8 @@
 // Inject variables
 injectVar("logoUrl", chrome.runtime.getURL('/src/logo_128.png'));
+injectVar("logoWUrl", chrome.runtime.getURL('/src/logo_w_128.png'));
+injectVar("keyUrl", chrome.runtime.getURL('/src/key_128.png'));
+injectVar("ss1Url", chrome.runtime.getURL('/src/ss1.png'));
 injectScript(chrome.runtime.getURL('/scripts/lock.js'), 'body');
 
 // Inject script to page [https://gist.github.com/devjin0617/3e8d72d94c1b9e69690717a219644c7a]
