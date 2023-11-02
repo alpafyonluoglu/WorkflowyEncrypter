@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Workflowy Encrypter",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Seamless client-side encryption for Workflowy",
   "author": "contact@alpafyonluoglu.dev",
   "icons": {

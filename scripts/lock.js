@@ -30,7 +30,8 @@ const FLAGS = {
   FORCE_DECRYPT: 0,
   SUPPRESS_WARNINGS: 1,
   NO_FETCH: 2,
-  TRACK_ENCRYPTION_CHANGES: 3
+  TRACK_ENCRYPTION_CHANGES: 3,
+  IGNORE_NULL_PARENT: 4
 };
 
 const OUTCOMES = {
@@ -559,7 +560,7 @@ class Popup {
     let buttonsElement = document.getElementById("_popup-buttons");
     if (buttons.length === 0) {
       buttons.push({
-        operation: (endOfPages ? OUTCOMES.COMPLETE : OUTCOMES.NEXT),
+        outcome: (endOfPages ? OUTCOMES.COMPLETE : OUTCOMES.NEXT),
         text: (endOfPages ? "Close" : "Next")
       })
     }
@@ -567,7 +568,7 @@ class Popup {
     for (let i = 0; i < buttons.length; i++) {
       const button = buttons[i];
       buttonsElement.insertAdjacentHTML("beforeend", `
-      <button class="_popup-button" type="button" data-id="` + i + `" onClick="onPopupClick(this, ` + button.operation + `)">` + button.text + `</button>
+      <button class="_popup-button" type="button" data-id="` + i + `" onClick="onPopupClick(this, ` + button.outcome + `)">` + button.text + `</button>
       `);
     }
 
@@ -1293,7 +1294,7 @@ class Util {
     return val;
   }
 
-  async decryptServerResponse(json, trackedChangeData) {
+  async decryptServerResponse(json, trackedChangeData, sharedId = null) {
     for (let op of json.ops) {
       if (op.data === undefined) {
         continue;
@@ -1303,7 +1304,11 @@ class Util {
       let stringifyJson = [];
 
       trackedChanges = [];
-      let result = await util.processOperation(op, dataObj, stringifyJson, [FLAGS.SUPPRESS_WARNINGS, FLAGS.NO_FETCH, FLAGS.TRACK_ENCRYPTION_CHANGES]);
+      let flags = [FLAGS.SUPPRESS_WARNINGS, FLAGS.NO_FETCH, FLAGS.TRACK_ENCRYPTION_CHANGES];
+      if (sharedId === null) {
+        flags.push(FLAGS.IGNORE_NULL_PARENT);
+      }
+      let result = await util.processOperation(op, dataObj, stringifyJson, flags);
       if (result === false) {
         return false;
       }
@@ -1350,7 +1355,7 @@ class Util {
   }
 
   async processCreateOperation(operation, dataObj, stringifyJson, flags = []) {
-    var parent = operation.data.parentid !== "None" ? operation.data.parentid : undefined;
+    var parent = operation.data.parentid !== "None" ? operation.data.parentid : (flags.includes(FLAGS.IGNORE_NULL_PARENT) ? undefined : null);
     operation.data.project_trees = JSON.parse(operation.data.project_trees);
     stringifyJson.push({
       contentTag: "project_trees",
@@ -1441,7 +1446,22 @@ class Util {
           });
         }
 
-        if (flags.includes(FLAGS.SUPPRESS_WARNINGS) || confirm('Are you sure you want to remove the ' + LOCK_TAG + ' tag and decrypt all child nodes? This will send decrypted content to Workflowy servers.')) {
+        if (
+          flags.includes(FLAGS.SUPPRESS_WARNINGS)
+          || (await popup.create(
+            "Confirm Decryption",
+            "Are you sure you want to remove the " + LOCK_TAG + " tag and decrypt all child nodes? This will send decrypted content to Workflowy servers.",
+            [
+              {
+                text: "Decrypt",
+                outcome: OUTCOMES.COMPLETE
+              },
+              {
+                text: "Cancel",
+                outcome: OUTCOMES.CANCEL
+              }
+            ], true)) === OUTCOMES.COMPLETE
+        ) {
           await this.updateChildNodeEncryption(id, false, false, flags);
         } else {
           window.onbeforeunload = null;
@@ -1522,7 +1542,7 @@ class Util {
   }
 
   async processMoveOperation(operation, dataObj, flags = []) {
-    var parent = operation.data.parentid !== "None" ? operation.data.parentid : undefined;
+    var parent = operation.data.parentid !== "None" ? operation.data.parentid : (flags.includes(FLAGS.IGNORE_NULL_PARENT) ? undefined : null);
     let ids = JSON.parse(operation.data.projectids_json);
     let decryptionAllowed = false;
     for (let id of ids) {
@@ -1549,7 +1569,23 @@ class Util {
           });
         }
 
-        if (flags.includes(FLAGS.SUPPRESS_WARNINGS) || decryptionAllowed || confirm('Are you sure you want to move selected node(s) under a non-encrypted node and decrypt their data? This will send decrypted content to Workflowy servers.')) {
+        if (
+          flags.includes(FLAGS.SUPPRESS_WARNINGS)
+          || decryptionAllowed
+          || (await popup.create(
+            "Confirm Decryption",
+            "Are you sure you want to move selected node(s) under a non-encrypted node and decrypt their data? This will send decrypted content to Workflowy servers.",
+            [
+              {
+                text: "Decrypt",
+                outcome: OUTCOMES.COMPLETE
+              },
+              {
+                text: "Cancel",
+                outcome: OUTCOMES.CANCEL
+              }
+            ], true)) === OUTCOMES.COMPLETE
+        ) {
           decryptionAllowed = true;
           await this.updateChildNodeEncryption(id, false, true, flags);
         } else {
@@ -1712,13 +1748,13 @@ async function onPostFetch(url, params, response) {
     for (let result of responseData.results) {
       if (result.server_run_operation_transaction_json !== undefined) {
         let json = JSON.parse(result.server_run_operation_transaction_json);
-        await util.decryptServerResponse(json, trackedChangeData);
+        await util.decryptServerResponse(json, trackedChangeData, (result.share_id ?? null));
         result.server_run_operation_transaction_json = JSON.stringify(json);
       }
       if (result.concurrent_remote_operation_transactions !== undefined) {
         for (let i = 0; i < result.concurrent_remote_operation_transactions.length; i++) {
           let json = JSON.parse(result.concurrent_remote_operation_transactions[i]);
-          await util.decryptServerResponse(json, trackedChangeData);
+          await util.decryptServerResponse(json, trackedChangeData, (result.share_id ?? null));
           result.concurrent_remote_operation_transactions[i] = JSON.stringify(json);
         }
       }
