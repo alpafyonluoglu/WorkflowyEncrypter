@@ -35,7 +35,11 @@ Visit [Chrome Web Store](https://chrome.google.com/webstore/detail/workflowy-enc
 As this is a third-party extension, full compatibility of the extension with the Workflowy website is not the case, and bugs may still be encountered. In those cases, simply force-reload the page by pressing Ctrl+Shift+R on Windows and Command+Shift+R on Mac. If the issue persists, do not hesitate to contact me, open an issue here on GitHub, or better yet, open a pull request if you are a developer. Contributions are much appreciated!
 
 ## Known Issues and Upcoming Features
-- [Feature] Encryption of uploaded files.
+- [Feature] Dark theme for popups.
+- [Feature] Delayed toast messages to display messages only for long processes.
+- [Feature] Popup focus navigation via keyboard improvement.
+- [Feature] Tracking encrypted nodes and warning if #private tag of any of them has been removed via a remote session.
+- [Feature] File encryption.
 
 ## Contributing
 All collaborators are welcome to contribute to the project in any constructive way as long as they comply with the code of conduct.
