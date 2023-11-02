@@ -454,7 +454,7 @@ class Popup {
         cursor: default;
         -webkit-tap-highlight-color: transparent;
       }
-      ._popup-button:hover {
+      ._popup-button:hover, ._popup-button:focus {
         background: rgb(221, 224, 226);
       }
       </style>
@@ -561,15 +561,20 @@ class Popup {
     if (buttons.length === 0) {
       buttons.push({
         outcome: (endOfPages ? OUTCOMES.COMPLETE : OUTCOMES.NEXT),
-        text: (endOfPages ? "Close" : "Next")
+        text: (endOfPages ? "Close" : "Next"),
+        focus: true
       })
     }
-    
+
     for (let i = 0; i < buttons.length; i++) {
       const button = buttons[i];
       buttonsElement.insertAdjacentHTML("beforeend", `
-      <button class="_popup-button" type="button" data-id="` + i + `" onClick="onPopupClick(this, ` + button.outcome + `)">` + button.text + `</button>
+      <button class="_popup-button" id="_popup-button` + i + `" type="button" data-id="` + i + `" onClick="onPopupClick(this, ` + button.outcome + `)">` + button.text + `</button>
       `);
+      if (button.focus === true) {
+        await sleep(100);
+        document.getElementById("_popup-button" + i).focus();
+      }
     }
 
     // Custom HTML
@@ -596,8 +601,6 @@ class Popup {
     }
 
     switch (outcome) {
-      case OUTCOMES.IGNORE:
-        return;
       case OUTCOMES.PREV:
         popup.setPage(currentPage - 1);
         break;
@@ -606,9 +609,11 @@ class Popup {
         break;
       case OUTCOMES.CANCEL:
       case OUTCOMES.COMPLETE:
-      default:
         popup.hide(outcome);
         break;
+      default:
+      case OUTCOMES.IGNORE:
+        return;
     }
   }
 
@@ -620,7 +625,7 @@ class Popup {
 
     let resolve = Popup.resolve;
     Popup.resolve = null;
-    Popup.args = null;
+    Popup.args = {};
     resolve(outcome);
   }
 }
@@ -907,8 +912,9 @@ class PopupHelper {
             placeholder: "secret"
           },
           buttons: [{
-            operation: OUTCOMES.CUSTOM,
+            outcome: OUTCOMES.CUSTOM,
             text: "Next",
+            focus: true,
             onClick: async function() {
               let key = document.getElementById("_input-box").value;
               if (key.length === 0) {
@@ -1458,7 +1464,8 @@ class Util {
               },
               {
                 text: "Cancel",
-                outcome: OUTCOMES.CANCEL
+                outcome: OUTCOMES.CANCEL,
+                focus: true
               }
             ], true)) === OUTCOMES.COMPLETE
         ) {
@@ -1582,7 +1589,8 @@ class Util {
               },
               {
                 text: "Cancel",
-                outcome: OUTCOMES.CANCEL
+                outcome: OUTCOMES.CANCEL,
+                focus: true
               }
             ], true)) === OUTCOMES.COMPLETE
         ) {
