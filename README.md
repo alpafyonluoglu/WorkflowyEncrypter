@@ -10,9 +10,9 @@
 ## About
 Seamless client-side encryption for Workflowy
 
-WorkflowyEncrypter is a simple browser extension providing client-side encryption for Workflowy. It encrypts all data locally on your device, meaning no data is sent to a third-party server. While it is designed to be minimal and seamless from the user's perspective, it ensures that all text-based content sent to Workflowy servers is encrypted with AES standards so that your sensitive content can **only be read by you**.
+WorkflowyEncrypter is an open-source and simple browser extension providing client-side encryption for Workflowy. It encrypts all data locally on your device, meaning no data is sent to a remote server. While it is designed to be minimal and seamless from the user's perspective, it ensures that all text-based content sent to Workflowy servers is encrypted with AES standards so that your sensitive content can **only be read by you**.
 
-## Getting started
+## Getting Started
 After installing the extension, follow the steps below to get started:
 1. Visit [workflowy.com](https://workflowy.com/) and determine a password (also referred to as 'key') that will be used for encryption.
 2. Add a `#private` tag to any node you want to secure. All sub-nodes of the selected node, including the ones you will add later, will be encrypted automatically.
@@ -30,6 +30,9 @@ Visit [Chrome Web Store](https://chrome.google.com/webstore/detail/workflowy-enc
 5. Select the folder containing extension files.  
 
 [![Available in the Chrome Web Store](https://storage.googleapis.com/web-dev-uploads/image/WlD8wC6g8khYWPJUsQceQkhXSlv1/UV4C4ybeBTsZt43U4xis.png)](https://chrome.google.com/webstore/detail/workflowy-encrypter/fohbpcookddpmmhpmgoogodlanhikeib)
+
+## Data & Privacy
+WorkflowyEncrypter does not collect any data from any user; there is not even a dedicated remote server for this extension. All processing is done locally on your device, shared with neither the developer nor any third parties.
 
 ## Note
 As this is a third-party extension, full compatibility of the extension with the Workflowy website is not the case, and bugs may still be encountered. In those cases, simply force-reload the page by pressing Ctrl+Shift+R on Windows and Command+Shift+R on Mac. If the issue persists, do not hesitate to contact me, open an issue here on GitHub, or better yet, open a pull request if you are a developer. Contributions are much appreciated!
