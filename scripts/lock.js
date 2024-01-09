@@ -765,6 +765,7 @@ class Encrypter {
   SECRET;
   enc;
   dec;
+  secretLoaded = false;
 
   constructor() {
     this.enc = new TextEncoder();
@@ -779,6 +780,7 @@ class Encrypter {
       location.reload();
     }
     this.SECRET = secret;
+    secretLoaded = true;
   }
 
   async encrypt(data) {
@@ -1423,7 +1425,7 @@ class RouteHandler {
         attentionNeeded.push(trackedChangeData[id]["name"]);
       }
     }
-    if (attentionNeeded.length > 0) {
+    if (attentionNeeded.length > 0 && encrypter.secretLoaded) {
       await popup.create("Heads Up!", LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers: <br>- " + attentionNeeded.join("<br>- "), [], true);
     }
 
