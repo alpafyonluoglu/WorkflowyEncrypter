@@ -16,6 +16,8 @@ var mostRecentOperationTransactionId = "";
 
 const {fetch: origFetch} = window;
 
+const DEFAULT_SHARE_ID = 'DEFAULT';
+
 const THEMES = {
   LIGHT: "light",
   DARK: "dark"
@@ -101,6 +103,7 @@ class NodeTracker {
    * Delete property if set to undefined
    * Update LOCKED property based on NAME property
    * Enforce to update parent of shared node and bypass other checks
+   * Properties set to undefined are ignored
    */
   update(id, properties, enforce = false) {
     if (id === undefined || id === null) {
@@ -288,6 +291,7 @@ toast.init();
 /**
  * Can be called by a single process at a time
  * Async popup with multiple pages
+ * Call with await to block the execution until the popup is closed
  * args: {
  *  style: string,
  *  pages: [{
@@ -679,24 +683,31 @@ class API {
   //   this.TREE = {};
   // }
 
-  async pushAndPoll(id, operations) {
-    // TODO: WHat if synced node is a subnode of a non-synced node
+  async pushAndPoll(operations) {
+    // TODO: Root of shared nodes are encrypted in a faulty way
     let rawBody = {
       client_id: clientId,
       client_version: clientVersion,
       crosscheck_user_id: crosscheckUserId,
-      push_poll_data: [{
-        most_recent_operation_transaction_id: mostRecentOperationTransactionId,
-        operations: operations
-      }],
+      push_poll_data: [],
       push_poll_id: null // Find what to send
     };
-    let shareId = nodes.getShareId(id);
-    if (shareId !== undefined) {
-      rawBody.push_poll_data[0].share_id = shareId;
-    }
-    let body = await util.decodeBody(rawBody);
 
+    for (let shareId in operations) {
+      let operationsInstance = operations[shareId];
+      let pushPollDataInstance = {
+        most_recent_operation_transaction_id: mostRecentOperationTransactionId,
+        operations: operationsInstance
+      };
+      if (shareId !== DEFAULT_SHARE_ID) {
+        pushPollDataInstance.share_id = shareId;
+      }
+      rawBody.push_poll_data.push(pushPollDataInstance);
+      
+      mostRecentOperationTransactionId++; // Find whether increment is needed
+    }
+
+    let body = await util.decodeBody(rawBody);
     let response = await origFetch(DOMAIN + "/push_and_poll", {
       method: 'POST',
       credentials: "same-origin",
@@ -940,15 +951,17 @@ class Util {
     nodes.update(id, properties, enforce);
   }
 
-  decodeVal(val) {
-    if (!u.isString(val)) {
-      val = JSON.stringify(val);
-    }
-    val = encodeURIComponent(val).replaceAll("%20", "+");
-    return val;
-  }
+  // decodeVal(val) {
+  //   if (!u.isString(val)) {
+  //     val = JSON.stringify(val);
+  //   }
+  //   val = encodeURIComponent(val).replaceAll("%20", "+");
+  //   return val;
+  // }
 
-  async decryptServerResponse(json, trackedChangeData, sharedId = null) {
+  async decryptServerResponse(json, trackedChangeData, shareId = null) {
+    // trackedChanges is global and holds temporary data
+    // trackedChangeData holds the data that is currently being processed
     for (let op of json.ops) {
       if (op.data === undefined) {
         continue;
@@ -959,7 +972,7 @@ class Util {
 
       trackedChanges = [];
       let flags = [FLAGS.SUPPRESS_WARNINGS, FLAGS.NO_FETCH, FLAGS.TRACK_ENCRYPTION_CHANGES];
-      if (sharedId === null) {
+      if (shareId !== null) {
         flags.push(FLAGS.IGNORE_NULL_PARENT);
       }
       let result = await util.processOperation(op, dataObj, stringifyJson, flags);
@@ -1051,7 +1064,7 @@ class Util {
 
   async processEditOperation(operation, dataObj, flags = []) {
     if (operation.data.name === undefined && operation.data.description === undefined) {
-      return;
+      return true;
     }
 
     let obj = {
@@ -1107,12 +1120,12 @@ class Util {
             "Are you sure you want to remove the " + LOCK_TAG + " tag and decrypt all child nodes? This will send decrypted content to Workflowy servers.",
             [
               {
-                text: "Decrypt",
-                outcome: OUTCOMES.COMPLETE
+                text: "Cancel",
+                outcome: OUTCOMES.CANCEL
               },
               {
-                text: "Cancel",
-                outcome: OUTCOMES.CANCEL,
+                text: "Decrypt",
+                outcome: OUTCOMES.COMPLETE,
                 focus: true
               }
             ], true)) === OUTCOMES.COMPLETE
@@ -1130,16 +1143,16 @@ class Util {
     dataObj.push(obj);
   }
 
-  async updateChildNodeEncryption(id, encrypt, processParentNode, flags = [], processingParent = true, rootId = null) {
+  async updateChildNodeEncryption(id, encrypt, processParentNode, flags = [], processingParent = true, rootId = null, operations = null) {
     if (processingParent) {
       if (flags.includes(FLAGS.NO_FETCH)) {
         return true;
       }
       await toast.show((encrypt ? "Encryption" : "Decryption") + " in progress...", "Keep the page open until this message disappears.", id);
       rootId = id;
+      operations = {};
     }
 
-    let operations = [];
     await this.createEncryptionOperationForNode(id, encrypt, processParentNode, processingParent, rootId, operations);
 
     let parent = nodes.getParent(id);
@@ -1147,16 +1160,15 @@ class Util {
       // Get children
       let ids = nodes.getChildren(id);
       for (let id of ids) {
-        operations = operations.concat(await this.updateChildNodeEncryption(id, encrypt, false, flags, false, rootId));
+        await this.updateChildNodeEncryption(id, encrypt, false, flags, false, rootId, operations);
       }
     }
 
     if (processingParent) {
-      await api.pushAndPoll(id, operations);
+      await api.pushAndPoll(operations);
       await toast.hide(id);
-    } else {
-      return operations;
     }
+    return true;
   }
 
   async createEncryptionOperationForNode(id, encrypt, processParentNode, processingParent, rootId, operations) {
@@ -1183,16 +1195,19 @@ class Util {
       let name = nodes.get(id, PROPERTIES.NAME);
       if (name !== undefined) {
         operation.data.name = encrypt ? await encrypter.encrypt(name) : name;
-        operation.undo_data.previous_name = "";
+        operation.undo_data.previous_name = encrypt ? await encrypter.encrypt(name) : name;
       }
 
       let description = nodes.get(id, PROPERTIES.DESCRIPTION);
       if (description !== undefined) {
         operation.data.description = encrypt ? await encrypter.encrypt(description) : description;
-        operation.undo_data.previous_description = "";
+        operation.undo_data.previous_description = encrypt ? await encrypter.encrypt(description) : description;
       }
 
-      operations.push(operation);
+      let branch = nodes.getShareId(id) === undefined ? DEFAULT_SHARE_ID : nodes.getShareId(id);
+      let operationsBranch = operations[branch] ?? [];
+      operationsBranch.push(operation);
+      operations[branch] = operationsBranch;
     }
   }
 
@@ -1232,12 +1247,12 @@ class Util {
             "Are you sure you want to move selected node(s) under a non-encrypted node and decrypt their data? This will send decrypted content to Workflowy servers.",
             [
               {
-                text: "Decrypt",
-                outcome: OUTCOMES.COMPLETE
+                text: "Cancel",
+                outcome: OUTCOMES.CANCEL
               },
               {
-                text: "Cancel",
-                outcome: OUTCOMES.CANCEL,
+                text: "Decrypt",
+                outcome: OUTCOMES.COMPLETE,
                 focus: true
               }
             ], true)) === OUTCOMES.COMPLETE
@@ -1259,6 +1274,22 @@ class Util {
     nodes.delete(id);
   }
 
+  /**
+   * If FORCE_DECRYPT flag is set, decrypt
+   * Otherwise, encrypt if given node id's parent is locked
+   * dataObj: [{
+   *  id: string,
+   *  delete: boolean,
+   *  properties: {
+   *   name: string,
+   *   description: string
+   *  },
+   *  process: [{
+   *   node: object,
+   *   contentTag: string
+   *  }]
+   * }]
+   */
   async processDataObjects(dataObj, flags = []) {
     for (let data of dataObj) {
       let id = data["id"];
@@ -1315,7 +1346,6 @@ class Util {
         share_id: nodes.getShareId(nodeId),
         id: nodeId,
         name: nodes.get(nodeId, PROPERTIES.NAME),
-        name_encrypted: await encrypter.encrypt(nodes.get(nodeId, PROPERTIES.NAME)),
         description: nodes.get(nodeId, PROPERTIES.DESCRIPTION),
         locked: nodes.isLocked(nodeId),
         data: node,
@@ -1364,7 +1394,7 @@ class RouteHandler {
   }
 
   async postPushAndPoll(responseData) {
-    // TODO: Find another point to clear cache later
+    // Find another point to clear cache later
     if (!cacheClearPerformed) {
       cache.clear();
       cacheClearPerformed = true;
