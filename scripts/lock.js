@@ -684,7 +684,6 @@ class API {
   // }
 
   async pushAndPoll(operations) {
-    // TODO: Root of shared nodes are encrypted in a faulty way
     let rawBody = {
       client_id: clientId,
       client_version: clientVersion,
@@ -1454,9 +1453,21 @@ class RouteHandler {
     shared = [];
     for (let info of responseData.projectTreeData.auxiliaryProjectTreeInfos) {
       if (info.rootProject.id !== undefined) {
-        nodes.update(info.rootProject.id, {
+        let node = {
           [PROPERTIES.SHARE_ID]: info.shareId
-        });
+        };
+
+        if (info.rootProject.nm !== undefined) {
+          info.rootProject.nm = await encrypter.decrypt(info.rootProject.nm);
+          node[PROPERTIES.NAME] = info.rootProject.nm;
+        }
+
+        if (info.rootProject.no !== undefined) {
+          info.rootProject.no = await encrypter.decrypt(info.rootProject.no);
+          node[PROPERTIES.DESCRIPTION] = info.rootProject.no;
+        }
+        
+        nodes.update(info.rootProject.id, node);
       }
       shared.push(info.shareId);
     }
