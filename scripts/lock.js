@@ -1,24 +1,33 @@
 const DOMAIN = "https://workflowy.com";
 const LOCK_TAG = "#private";
 const PRE_ENC_CHAR = "_";
-var shared = [];
+var shared = []; // Share IDs
+
+var trackedChanges = [];
+var cacheClearPerformed = false;
+var quarantine = false;
+var theme = null;
+
 var crosscheckUserId = "";
 var clientId = "";
 var clientVersion = "";
 var wfBuildDate = "";
 var mostRecentOperationTransactionId = "";
-var cacheClearPerformed = false;
-var trackedChanges = [];
-var quarantine = false;
 
-// TODO: Store ids of encrypted nodes and warn user if lock tag is removed from them while the user was offline
+const {fetch: origFetch} = window;
+
+const THEMES = {
+  LIGHT: "light",
+  DARK: "dark"
+};
 
 const PROPERTIES = {
   NAME: "name",
   DESCRIPTION: "description",
   LOCKED: "locked",
   PARENT: "parent",
-  SHARE_ID: "shareId"
+  SHARE_ID: "shareId",
+  LOCAL_ID: "localId"
 };
 
 const SENSITIVE_PROPERTIES = [
@@ -43,25 +52,43 @@ const OUTCOMES = {
   CUSTOM: 4
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function getInternalVar(key) {
-  return document.getElementById("we-internal-" + key).getAttribute('value');
-}
-
-function randomStr(length) { // [https://stackoverflow.com/a/1349426]
-  let result = '';
-  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const charactersLength = characters.length;
-  let counter = 0;
-  while (counter < length) {
-    result += characters.charAt(Math.floor(Math.random() * charactersLength));
-    counter += 1;
+class BaseUtil {
+  updateTheme() {
+    var body = document.getElementsByTagName("body")[0];
+    var bodyBgColor = window.getComputedStyle(body, null).getPropertyValue("background-color");
+    theme = bodyBgColor === "rgb(42, 49, 53)" ? THEMES.DARK : THEMES.LIGHT;
   }
-  return result;
+
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  getInternalVar(key) {
+    return document.getElementById("wfe-internal-" + key).getAttribute('value');
+  }
+
+  endpointMatches(path, method, url, params) {
+    return url.includes(DOMAIN + path) && method === params.method;
+  }
+  
+  isString(val) {
+    return typeof val === 'string' || val instanceof String;
+  }
+
+  randomStr(length) { // [https://stackoverflow.com/a/1349426]
+    let result = '';
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const charactersLength = characters.length;
+    let counter = 0;
+    while (counter < length) {
+      result += characters.charAt(Math.floor(Math.random() * charactersLength));
+      counter += 1;
+    }
+    return result;
+  }
 }
+const u = new BaseUtil();
+u.updateTheme();
 
 class NodeTracker {
   NODES = {};
@@ -70,17 +97,27 @@ class NodeTracker {
     return this.NODES;
   }
 
-  update(id, properties) {
+  /**
+   * Delete property if set to undefined
+   * Update LOCKED property based on NAME property
+   * Enforce to update parent of shared node and bypass other checks
+   */
+  update(id, properties, enforce = false) {
     if (id === undefined || id === null) {
       return false;
     }
 
     let node = this.NODES[id] ?? {};
+    let isSharedRoot = node[PROPERTIES.SHARE_ID] !== undefined;
 
     for (let property in properties) {
       if (properties[property] === undefined && node[property] !== undefined) {
         delete properties[property];
       }
+    }
+
+    if (isSharedRoot && !enforce) {
+      delete properties[PROPERTIES.PARENT];
     }
 
     let updatedNode = {...node, ...properties};
@@ -94,6 +131,13 @@ class NodeTracker {
     delete this.NODES[id];
   }
 
+  
+  /**
+   * Return node if no property is specified
+   * Return node's property if property is specified
+   * If recursive is true and node's property is undefined, return property of the node's parents
+   * If node's value is included in the ignored list, handle node's value as undefined
+   */
   get(id, property = null, recursiveCheck = false, ignored = []) {
     if (id === undefined || id === null) {
       return undefined;
@@ -118,102 +162,87 @@ class NodeTracker {
     return this.get(id, PROPERTIES.PARENT, false);
   }
 
+  /**
+   * Direct param is used to check the property of the node itself
+   * Setting direct to false will check the property of the node's parents
+   */
   isLocked(id, direct = false) {
     return this.get(id, PROPERTIES.LOCKED, !direct, [false]) ?? false;
   }
 
   hasChild(id) {
-    for (let nodeId in this.NODES) {
-      if (this.NODES[nodeId][PROPERTIES.PARENT] === id) {
-        return true;
-      }
-    }
-    return false;
+    return this.find(PROPERTIES.PARENT, id, true).length > 0;
   }
 
   getChildren(id) {
-    let childIds = [];
+    return this.find(PROPERTIES.PARENT, id);
+  }
+
+  find(property, value, single = false) {
+    let nodes = [];
     for (let nodeId in this.NODES) {
-      if (this.NODES[nodeId][PROPERTIES.PARENT] === id) {
-        childIds.push(nodeId);
+      if (this.NODES[nodeId][property] === value) {
+        nodes.push(nodeId);
+        if (single) {
+          break;
+        }
       }
     }
-    return childIds;
+    return nodes;
   }
 }
 const nodes = new NodeTracker();
 
-// TODO: Delayed toast; show toast 100ms after delay only if hide() is not called in that time
+class ComponentLoader {
+  // For a native look, HTML and CSS are taken from the Workflowy's site
+  async getPopupContainerHTML() {
+    let path = u.getInternalVar("htmlPopupContainer")
+    return await this.readFile(path);
+  }
+
+  async getToastContainerHTML() {
+    let path = u.getInternalVar("htmlToastContainer")
+    return await this.readFile(path);
+  }
+
+  async getWelcomeCss() {
+    let path = u.getInternalVar("cssWelcome")
+    return await this.readFile(path);
+  }
+
+  async getWelcomeHtml(id, properties = {}) {
+    let path = u.getInternalVar("htmlPopupWelcome" + id)
+    return await this.parseProperties(await this.readFile(path), properties);
+  }
+
+  async parseProperties(content, properties) {
+    for (let key in properties) {
+      content = content.replaceAll("{{" + key + "}}", properties[key]);
+    }
+    return content;
+  }
+
+  async readFile(path) {
+    let response = await origFetch(path);
+    return await response.text();
+  }
+}
+const components = new ComponentLoader();
+
+/**
+ * Can be called by multiple processes at the same time
+ * For non-interactive messages
+ */
 class Toast {
-  PROCESS = {};
-  processActive = false;
+  PROCESSES = {}
+  processActive = false; // If there is a toast message being shown
 
-  init(title = "", text = "", success = false) {
-    // For a native look, toast HTML and CSS are taken from the Workflowy's site
-    document.body.insertAdjacentHTML("afterbegin",`
-    <div class="_toast-container" id="_toast">
-      <div class="_toast" id="_toast2">
-        <div class="messageContent  _message" id="_message">
-          <span><b>` + title + `</b> ` + text + `</span>
-        </div>
-        <span style="cursor: pointer; padding: 4px 4px 4px 0px;">
-      </div>
-    </div>
-
-    <style>
-    ._toast-container {
-      overflow: hidden;
-      position: fixed;
-      left: 0px;
-      right: 0px;
-      bottom: 45px;
-      overflow: hidden;
-      z-index: 1002;
-      transition: left 0.25s ease 0s;
-      display: flex;
-      justify-content: center;
-      -webkit-box-pack: center;
-    }
-
-    ._toast {
-      transition: transform 300ms ease 0s;
-      font-size: 15px;
-      padding: 8px 12px;
-      text-align: center;
-      background-color: ` + (success ? "rgb(106, 206, 159)" : "rgb(131, 162, 206)") + `;
-      color: ` + (success ? "rgb(42, 49, 53)" : "rgb(44, 53, 49)") + `;
-      max-width: 60%;
-      border-radius: 16px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-      display: flex;
-      align-items: center;
-      -webkit-box-align: center;
-      visibility: hidden;
-    }
-
-    ._message {
-      flex-grow: 1;
-      -webkit-box-flex: 1;
-      flex-shrink: 1;
-      line-height: 1.4;
-      padding: 0px 8px;
-      border-color: initial;
-      outline-color: initial;
-      background-image: initial;
-      background-color: transparent;
-      margin: 0;
-      border: 0;
-      outline: 0;
-      font-size: 100%;
-      vertical-align: baseline;
-      background: transparent;
-    }  
-    </style>
-    `);
+  async init() {
+    document.body.insertAdjacentHTML("afterbegin", await components.getToastContainerHTML());
   }
 
   async show(title, text, relatedNodeId) {
-    this.PROCESS[relatedNodeId] = {
+    this.PROCESSES[relatedNodeId] = {
       title: title,
       text: text
     };
@@ -225,258 +254,71 @@ class Toast {
       let toastElement = document.getElementById("_toast2");
       let height = toastElement.offsetHeight;
       toastElement.style.marginBottom = "-" + height + "px";
-      await sleep(50);
+      await u.sleep(50);
       toastElement.style.visibility = "visible";
       toastElement.style.transition = "all .3s ease-in-out";
-      await sleep(50);
+      await u.sleep(50);
       toastElement.style.marginBottom = "0px";
-      await sleep(300);
+      await u.sleep(300);
     }
   }
 
   async hide(relatedNodeId) {
-    delete this.PROCESS[relatedNodeId];
+    delete this.PROCESSES[relatedNodeId];
 
-    for (let id in this.PROCESS) {
-      let title = this.PROCESS[id].title;
-      let text = this.PROCESS[id].text;
+    if (this.PROCESSES.length === 0) {
+      let title = this.PROCESSES[0].title;
+      let text = this.PROCESSES[0].text;
       document.getElementById("_message").innerHTML = "<span><b>" + title + "</b> " + text + "</span>";
       return;
     }
 
-    // document.getElementById("_toast").remove();
+    this.processActive = false;
     let toastElement = document.getElementById("_toast2");
     let height = toastElement.offsetHeight;
     toastElement.style.marginBottom = "-" + height + "px";
-    await sleep(300);
+    await u.sleep(300);
     toastElement.style.visibility = "hidden";
     toastElement.style.transition = "all 0s";
-    
-    this.processActive = false;
   }
 }
 const toast = new Toast();
 toast.init();
 
-// TODO: Popup focus navigation via keyboard improvement
+/**
+ * Can be called by a single process at a time
+ * Async popup with multiple pages
+ * args: {
+ *  style: string,
+ *  pages: [{
+ *   title: string,
+ *   text: string,
+ *   input: {
+ *    label: string,
+ *    placeholder: string
+ *   }
+ *   buttons: [{
+ *    outcome: int,
+ *    text: string,
+ *    focus: bool,
+ *    onClick: function
+ *   }],
+ *   html: [{
+ *    position: string,
+ *    content: string
+ *   }],
+ *   script: function
+ *  }]
+ * }
+ */
 class Popup {
   static resolve = null;
   static args = null;
-  
-  init() {
-    // TODO: Input box style is not same as the native input boxes
-    document.body.insertAdjacentHTML("afterbegin",`
-      <style>
-      ._popup-container {
-        visibility: hidden;
-        position: fixed;
-        width: 100%;
-        height: 100%;
-        left: 0px;
-        right: 0px;
-        top: 0px;
-        bottom: 0px;
-        overflow: hidden;
-        z-index: 1003;
-        display: flex;
-        justify-content: center;
-        -webkit-box-pack: center;
-        background-color: rgba(0, 0, 0, 0.2);
-      }
-  
-      ._popup {
-        font-size: 15px;
-
-        position: absolute;
-        margin-top: 10vh;
-        max-height: calc(100% - 20vh);
-        width: calc((100% - 36px) - 36px);
-        flex-shrink: 0;
-        padding: 36px;
-        box-sizing: border-box;
-        max-width: 576px;
-        overflow: auto;
-        border-radius: 6px;
-        box-shadow: rgba(0, 0, 0, 0.12) 0px 2px 20px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-        transition: transform 300ms ease 0s, opacity 300ms ease 0s, height 1s ease-in-out 0s;
-
-        background: rgb(255, 255, 255);
-        color: rgb(42, 49, 53);
-        border: 1px solid rgb(220, 224, 226);
-      }
-
-      ._popup-content {
-        transition: all .3s ease-in-out;
-        opacity: 1;
-      }
-
-      ._popup-title {
-        margin-top: 0px;
-        margin-bottom: 0px;
-        font-size: 26px;
-        font-weight: bold;
-        line-height: normal;
-        white-space: nowrap;
-        text-overflow: ellipsis;
-        overflow: hidden;
-        margin-right: 40px;
-        position: relative;
-        top: -4px;
-      }
-  
-      ._popup-text {
-        margin: 0;
-        padding: 0;
-        border: 0;
-        outline: 0;
-        font-size: 100%;
-        vertical-align: baseline;
-        background: transparent;
-        margin-top: 12px;
-        line-height: 20px;
-        margin-bottom: 24px;
-      }
-
-      ._input {
-        display: flex;
-        margin-top: 12px;
-        margin: 0;
-        padding: 0;
-        border: 0;
-        outline: 0;
-        font-size: 100%;
-        vertical-align: baseline;
-        background: transparent;
-      }
-
-      ._input-text {
-        min-width: 96px;
-        font-size: 15px;
-        line-height: 30px;
-      }
-
-      ._input-box-container {
-        display: flex;
-        flex-direction: column;
-        border: 1px solid rgb(220, 224, 226);
-        box-sizing: border-box;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-      }
-
-      ._input-box {
-        text-transform: none;
-        text-indent: 0px;
-        text-shadow: none;
-        text-align: start;
-        -webkit-rtl-ordering: logical;
-        cursor: text;
-        user-select: text;
-
-        text-rendering: auto;
-        letter-spacing: normal;
-        word-spacing: normal;
-        line-height: normal;
-        text-transform: none;
-        text-indent: 0px;
-        text-shadow: none;
-        display: inline-block;
-        text-align: start;
-        appearance: auto;
-        -webkit-rtl-ordering: logical;
-        cursor: text;
-        background-color: field;
-        margin: 0em;
-        padding: 1px 0px;
-        border-width: 2px;
-        border-style: inset;
-        border-color: -internal-light-dark(rgb(118, 118, 118), rgb(133, 133, 133));
-        border-image: initial;
-        padding-block: 1px;
-        padding-inline: 2px;
-
-        writing-mode: horizontal-tb !important;
-        padding-block: 1px;
-        padding-inline: 2px;
-
-        display: block;
-        width: 100%;
-        box-sizing: border-box;
-        appearance: none;
-        border-radius: 4px;
-        border: 1px solid rgb(220, 224, 226);
-        outline: none;
-        background: rgb(255, 255, 255);
-        color: rgb(42, 49, 53);
-        margin: 0px;
-        padding: 8px;
-        font-family: inherit;
-        font-size: 12px;
-        line-height: 15px;
-        -webkit-tap-highlight-color: transparent;
-
-        
-      }
-
-      ._popup-buttons {
-        text-align: center;
-        margin-top: 24px;
-      }
-
-      ._popup-button {
-        text-rendering: auto;
-        letter-spacing: normal;
-        word-spacing: normal;
-        text-transform: none;
-        text-indent: 0px;
-        text-shadow: none;
-        align-items: flex-start;
-        margin: 0em;
-        padding-block: 1px;
-        padding-inline: 6px;
-        
-        display: inline-block;
-        position: relative;
-        appearance: none;
-        border: none;
-        outline: none;
-        border-radius: 12px;
-        box-sizing: border-box;
-        line-height: 16px;
-        padding: 4px 12px;
-        background: rgb(236, 238, 240);
-        color: rgb(42, 49, 53);
-        font-family: inherit;
-        font-weight: 500;
-        font-size: 12px;
-        text-align: center;
-        text-decoration: none;
-        cursor: default;
-        -webkit-tap-highlight-color: transparent;
-      }
-      ._popup-button:hover, ._popup-button:focus {
-        background: rgb(221, 224, 226);
-      }
-      </style>
-      `);
-  }
 
   create(title, text, buttons = [], cancellable = true, args = {}) {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       Popup.resolve = resolve;
       Popup.args = args;
-
-      // For a native look, popup HTML and CSS are taken from the Workflowy's site
-      // Create popup
-      document.body.insertAdjacentHTML("afterbegin",`
-      <div class="_popup-container" id="_popup">
-        <div class="_popup">
-          <div class="_popup-content" id="_popup-content"></div>
-        </div>
-      </div>
-      `);
 
       // Create page from function args
       if (!args.pages || !Array.isArray(args.pages) || args.pages.length === 0) {
@@ -487,12 +329,15 @@ class Popup {
         }];
       }
 
+      // Apply custom styles
       if (args.style) {
-        document.body.insertAdjacentHTML("afterbegin",`
-        <style>` + args.style + `</style>
-        `); 
+        var element = document.createElement('style');
+        element.innerHTML = args.style;
+        document.body.appendChild(element);
       }
 
+      // Create popup
+      document.body.insertAdjacentHTML("afterbegin", await components.getPopupContainerHTML());
       Popup.args.pageCount = args.pages.length;
       Popup.args.currentPage = 0;
       this.setPage(0);
@@ -509,27 +354,41 @@ class Popup {
 
   async show() {
     let popupElement = document.getElementById("_popup");
+    let popupBoxElement = document.getElementById("_popup-box");
     popupElement.style.visibility = "visible";
     popupElement.style.opacity = "0";
     popupElement.style.transition = "all .3s ease-in-out";
-    await sleep(300);
+    popupBoxElement.style.marginTop = "6vh";
+    popupBoxElement.style.transform = "scale(0.98)";
+    popupBoxElement.style.transition = "all .3s ease-in-out";
+    await u.sleep(300);
+    popupBoxElement.style.marginTop = "10vh";
+    popupBoxElement.style.transform = "scale(1)";
     popupElement.style.opacity = "1";
-    await sleep(300);
+    await u.sleep(300);
+  }
+
+  async hide(outcome = OUTCOMES.CANCEL) {
+    let popupElement = document.getElementById("_popup");
+    let popupBoxElement = document.getElementById("_popup-box");
+    popupElement.style.opacity = "0";
+    popupBoxElement.style.marginTop = "6vh";
+    popupBoxElement.style.transform = "scale(0.98)";
+    await u.sleep(300);
+    document.getElementById("_popup").remove();
+
+    let resolve = Popup.resolve;
+    Popup.resolve = null;
+    Popup.args = {};
+    resolve(outcome);
   }
 
   async setPage(pageIndex) {
+    const popupBoxElement = document.getElementById("_popup-box");
     const pageCount = Popup.args.pageCount;
     const endOfPages = pageIndex === pageCount - 1;
     const page = Popup.args.pages[pageIndex];
 
-    let content = document.getElementById("_popup-content");
-    if (content.children.length !== 0) {
-      content.style.opacity = "0";
-      await sleep(300);
-      content.replaceChildren();
-    }
-
-    // Load page content
     const title = page["title"] ?? "";
     const text = page["text"] ?? "";
     const input = page["input"] ?? null;
@@ -537,29 +396,52 @@ class Popup {
     const htmlList = page["html"] ?? [];
     const script = page["script"] ?? (() => {});
 
-    // Title, text
-    content.insertAdjacentHTML("afterbegin", `
-    <p class="_popup-title">` + title + `</p>
-    <p class="_popup-text">` + text + `</p>
-    `);
-
-    // Input
-    if (input !== null) {
-      content.insertAdjacentHTML("beforeend", `
-      <div class="_input">
-        <p class="_input-text">` + input["label"] + `</p>
-        <div class="_input-box-container">
-          <input class="_input" type="text" id="_input-box" placeholder="` + input["placeholder"] + `">
-        </div>
-      </dib>
-      `);
+    // Remove current page
+    let content = document.getElementById("_popup-content");
+    if (content.children.length !== 0) {
+      content.style.opacity = "0";
+      await u.sleep(300);
+      content.replaceChildren();
     }
 
-    // Buttons
-    content.insertAdjacentHTML("beforeend", `
-    <div class="_popup-buttons" id="_popup-buttons"></div>
-    `);
-    let buttonsElement = document.getElementById("_popup-buttons");
+    // Load new page
+    var titleElement = document.createElement('p');
+    titleElement.classList.add("_popup-title");
+    titleElement.innerHTML = title;
+    content.appendChild(titleElement);
+
+    var textElement = document.createElement('p');
+    textElement.classList.add("_popup-text");
+    textElement.innerHTML = text;
+    content.appendChild(textElement);
+
+    if (input !== null) {
+      var divElement1 = document.createElement('div');
+      divElement1.classList.add("_input");
+      content.appendChild(divElement1);
+      
+      var textElement = document.createElement('p');
+      textElement.classList.add("_input-text");
+      textElement.innerHTML = input["label"];
+      divElement1.appendChild(textElement);
+
+      var divElement2 = document.createElement('div');
+      divElement2.classList.add("_input-box-container");
+      divElement1.appendChild(divElement2);
+
+      var inputElement = document.createElement('input');
+      inputElement.classList.add("_input");
+      inputElement.type = 'text';
+      inputElement.placeholder = input["placeholder"];
+      inputElement.id = "_input-box";
+      divElement2.appendChild(inputElement);
+    }
+
+    var buttonsElement = document.createElement('div');
+    buttonsElement.classList.add("_popup-buttons");
+    buttonsElement.id = "_popup-buttons";
+    content.appendChild(buttonsElement);
+    
     if (buttons.length === 0) {
       buttons.push({
         outcome: (endOfPages ? OUTCOMES.COMPLETE : OUTCOMES.NEXT),
@@ -569,36 +451,46 @@ class Popup {
     }
 
     for (let i = 0; i < buttons.length; i++) {
-      const button = buttons[i];
-      buttonsElement.insertAdjacentHTML("beforeend", `
-      <button class="_popup-button" id="_popup-button` + i + `" type="button" data-id="` + i + `" onClick="onPopupClick(this, ` + button.outcome + `)">` + button.text + `</button>
-      `);
-      if (button.focus === true) {
-        await sleep(100);
-        document.getElementById("_popup-button" + i).focus();
+      const buttonData = buttons[i];
+
+      var buttonElement = document.createElement('button');
+      buttonElement.classList.add("_popup-button");
+      buttonElement.id = "_popup-button" + i;
+      buttonElement.type = "button";
+      buttonElement.setAttribute("data-id", i);
+      buttonElement.innerHTML = buttonData.text;
+      buttonElement.onclick = () => {
+        Popup.onClick(i, buttonData.outcome);
+      };
+      buttonsElement.appendChild(buttonElement);
+
+      if (buttonData.focus === true) {
+        await u.sleep(100);
+        buttonElement.focus();
       }
     }
 
-    // Custom HTML
     if (htmlList.length > 0) {
       for (let htmlItem of htmlList) {
         content.insertAdjacentHTML(htmlItem.position, htmlItem.content);
       }
     }
 
-    await sleep(100);
+    await u.sleep(100);
     script();
 
-
+    popupBoxElement.style.minHeight = "0";
     Popup.args.currentPage = pageIndex;
     content.style.opacity = "1";
-    await sleep(300);
+
+    await u.sleep(300);
+    let popupBoxHeight = popupBoxElement.offsetHeight;
+    popupBoxElement.style.minHeight = popupBoxHeight + "px";
   }
 
-  static async onClick(element, outcome) {
+  static async onClick(id, outcome) {
     const currentPage = Popup.args.currentPage;
     if (outcome === OUTCOMES.CUSTOM) {
-      let id = element.getAttribute("data-id");
       outcome = (await Popup.args.pages[currentPage].buttons[id].onClick() ?? outcome);
     }
 
@@ -618,266 +510,24 @@ class Popup {
         return;
     }
   }
-
-  async hide(outcome = OUTCOMES.CANCEL) {
-    let popupElement = document.getElementById("_popup");
-    popupElement.style.opacity = "0";
-    await sleep(300);
-    document.getElementById("_popup").remove();
-
-    let resolve = Popup.resolve;
-    Popup.resolve = null;
-    Popup.args = {};
-    resolve(outcome);
-  }
 }
 const popup = new Popup();
-popup.init();
-
-function onPopupClick(element, outcome) {
-  Popup.onClick(element, outcome);
-}
 
 class PopupHelper {
   async welcome() {
-    await sleep(2000);
+    await u.sleep(2000);
     return await popup.create(null, null, [], false, {
-      style: `
-      ._html1-box {
-        position: relative;
-        margin: 0 auto;
-        align-items: center;
-        text-align: center;
-        border-radius: 6px;
-        padding: 48px 0;
-        margin-bottom: 24px;
-        overflow: hidden;
-      }
-    
-      ._html3-box {
-        padding: 0;
-      }
-    
-      ._html1-logo {
-          width: 64px;
-          box-sizing: border-box;
-          padding: 8px;
-      }
-    
-      ._html2-logo {
-        padding: 0;
-      }
-    
-      ._html3-logo {
-        height: 160px;
-        width: auto;
-        padding: 32px;
-      }
-    
-      ._html3-logo-w {
-        visibility: visible;
-        animation: anim-logo 2s forwards ease-out;
-        animation-delay: .7s;
-      }
-    
-      @keyframes anim-logo {
-        0%   {
-          transform: scale(1);
-        }
-        100% {
-          transform: scale(1.5);
-        }
-      }
-    
-      .inline {
-          display: inline-block;
-          vertical-align: middle;
-      }
-    
-      ._html1-workflowy-title {
-          color: #333;
-          font-family: Open Sans, sans-serif;
-          font-size: 24px;
-          font-weight: 700;
-          
-          line-height: 64px;
-          -webkit-text-size-adjust: 100%;
-      }
-    
-      ._html1-title {
-          color: #333;
-          font-family: Open Sans, sans-serif;
-          font-size: 28px;
-          line-height: 64px;
-          font-weight: 400;
-          cursor: default;
-      }
-    
-      ._html1-title-white {
-        color: #fafafa;
-        text-align: left;
-        opacity: 0.8;
-    }
-    
-      .marginLeft {
-        margin-left: 8px;
-      }
-    
-      ._html1-blue-content {
-        position: relative;
-        align-items: center;
-        text-align: center;
-        width: 500px;
-        height: 500px;
-        padding: 48px 0;
-        
-        margin-left: 0;
-        margin-top: 0;
-        transition: 0s;
-        animation: anim-blue-content 7s infinite ease;
-      }
-    
-      @keyframes anim-blue-content {
-        0%   {
-          margin-left: 0px;
-          margin-top: 0px;
-        }
-        20%   {
-          margin-left: 0px;
-          margin-top: 0px;
-        }
-        30% {
-          margin-left: 500px;
-          margin-top: 500px;
-        }
-        40% {
-          margin-left: 500px;
-          margin-top: 500px;
-        }
-        45%   {
-          margin-left: 0px;
-          margin-top: 0px;
-        }
-        100%   {
-          margin-left: 0px;
-          margin-top: 0px;
-        }
-      }
-    
-      ._html3-blue-content {
-        visibility: visible;
-        animation: anim-blue-content3 1s forwards ease;
-        animation-delay: .7s;
-      }
-    
-      @keyframes anim-blue-content3 {
-        0%   {
-          margin-left: 0px;
-          margin-top: 0px;
-        }
-        100% {
-          margin-left: 500px;
-          margin-top: 500px;
-        }
-      }
-    
-      ._html1-blue {
-        position: absolute;
-        background-color: rgb(171, 190, 209);
-        border-radius: 50%;
-        width: 1000px;
-        height: 1000px;
-        padding: 0;
-        margin: 0;
-        left: 0;
-        top: 0;
-        margin-left: 0;
-        margin-top: 0;
-        display: block;
-        animation: anim-blue 7s infinite ease;
-        overflow: hidden;
-      }
-    
-      @keyframes anim-blue {
-        0%   {
-          max-width: 0px;
-          max-height: 0px;
-          margin-left: 0px;
-          margin-top: 0px;
-        }
-        20%   {
-          max-width: 0px;
-          max-height: 0px;
-          margin-left: 0px;
-          margin-top: 0px;
-        }
-        30% {
-          max-width: 1000px;
-          max-height: 1000px;
-          margin-left: -500px;
-          margin-top: -500px;
-        }
-        40% {
-          max-width: 1000px;
-          max-height: 1000px;
-          margin-left: -500px;
-          margin-top: -500px;
-        }
-        45%   {
-          max-width: 0px;
-          max-height: 0px;
-          margin-left: 0px;
-          margin-top: 0px;
-        }
-        100%   {
-          max-width: 0px;
-          max-height: 0px;
-          margin-left: 0px;
-          margin-top: 0px;
-        }
-      }
-    
-      ._html3-blue {
-        visibility: hidden;
-        animation: anim-blue2 1s forwards ease;
-        animation-delay: .7s;
-      }
-    
-      @keyframes anim-blue2 {
-        0%   {
-          visibility: visible;
-          max-width: 0px;
-          max-height: 0px;
-          margin-left: 0px;
-          margin-top: 0px;
-        }
-        100% {
-          visibility: visible;
-          max-width: 1000px;
-          max-height: 1000px;
-          margin-left: -500px;
-          margin-top: -500px;
-        }
-      }
-      `,
+      style: await components.getWelcomeCss(),
       pages: [
         {
           title: "Let's Secure Your Data",
-          text: "Welcome to WorkflowyEncrypter! To enable seamless client-side encryption, follow this brief setup and let us help you secure your data.",
+          text: "Welcome to Workflowy Encrypter! To enable seamless client-side encryption, follow this brief setup and let us help you secure your data.",
           html: [{
             position: "afterbegin",
-            content: `
-            <div class="_html1-box" id="_html1-box">
-              <img class="_html1-logo inline" id="_html1-logo" src="` + getInternalVar("logoUrl") + `" alt="logo">
-              <p class="_html1-title inline" id="we-text1"><span class="_html1-workflowy-title">Workflowy</span> Encrypter</p>
-              <div class="_html1-blue" id="_blue">
-                <div class="_html1-blue-content" id="_blue-content">
-                  <img class="_html1-logo inline absolute" src="` + getInternalVar("logoWUrl") + `" alt="logo">
-                  <p class="_html1-title _html1-title-white inline" id="we-text2">ciSw6deyI9hOthlspe</p>
-                </div>
-              </div>
-            </div>
-            `
+            content: await components.getWelcomeHtml(1, {
+              logo_url: u.getInternalVar("logoUrl"),
+              logo_w_url: u.getInternalVar("logoWUrl")
+            })
           }],
           script: () => {
             const text1 = document.getElementById("we-text1");
@@ -898,7 +548,7 @@ class PopupHelper {
             text2.style.width = text1.offsetWidth + "px";
             
             let setRandomText = (text2) => {
-              text2.textContent = PRE_ENC_CHAR + randomStr(15 - PRE_ENC_CHAR.length);
+              text2.textContent = PRE_ENC_CHAR + u.randomStr(15 - PRE_ENC_CHAR.length);
               setTimeout(() => {
                 setRandomText(text2)
               }, 7 * 1000);
@@ -921,9 +571,9 @@ class PopupHelper {
             focus: true,
             onClick: async function() {
               let key = document.getElementById("_input-box").value;
-              if (key.length === 0) {
+              if (key.replaceAll(" ", "").length === 0) {
                 toast.show("Key cannot be empty.", "Provide a valid key and try again.", "KEY");
-                await sleep(3000);
+                await u.sleep(3000);
                 toast.hide("KEY");
                 return OUTCOMES.IGNORE;
               } else {
@@ -934,11 +584,9 @@ class PopupHelper {
           }],
           html: [{
             position: "afterbegin",
-            content: `
-            <div class="_html1-box" id="_html1-box">
-              <img class="_html1-logo _html2-logo inline" src="` + getInternalVar("keyUrl") + `" alt="key icon">
-            </div>
-            `
+            content: await components.getWelcomeHtml(2, {
+              key_url: u.getInternalVar("keyUrl")
+            })
           }]
         },
         {
@@ -946,28 +594,20 @@ class PopupHelper {
           text: "Now that your key is ready, you can use it seamlessly just by adding a " + LOCK_TAG + " tag to any node you want to secure. All sub-nodes of the selected node, including the ones you will add later, will be encrypted automatically.",
           html: [{
             position: "afterbegin",
-            content: `
-            <div class="_html1-box _html3-box" id="_html1-box">
-              <img class="_html1-logo _html3-logo inline" src="` + getInternalVar("ss1Url") + `" alt="screenshot">
-            </div>
-            `
+            content: await components.getWelcomeHtml(3, {
+              ss1_url: u.getInternalVar("ss1Url")
+            })
           }]
         },
         {
           title: "That's It!",
-          text: "Encrypted nodes will be readable only from web browsers that have WorkflowyEncrypter installed. Try to use a different device or disable the extension temporarily to see the magic!",
+          text: "Encrypted nodes will be readable only from web browsers that have Workflowy Encrypter installed. Try to use a different device or disable the extension temporarily to see the magic!",
           html: [{
             position: "afterbegin",
-            content: `
-            <div class="_html1-box" id="_html1-box">
-              <img class="_html1-logo inline" id="_html1-logo" src="` + getInternalVar("logoUrl") + `" alt="logo">
-              <div class="_html1-blue _html3-blue" id="_blue">
-                <div class="_html1-blue-content _html3-blue-content" id="_blue-content">
-                  <img class="_html1-logo _html3-logo-w inline absolute" src="` + getInternalVar("logoWUrl") + `" alt="logo">
-                </div>
-              </div>
-            </div>
-            `
+            content: await components.getWelcomeHtml(4, {
+              logo_url: u.getInternalVar("logoUrl"),
+              logo_w_url: u.getInternalVar("logoWUrl")
+            })
           }],
           script: () => {
             const blue = document.getElementById("_blue");
@@ -992,51 +632,55 @@ class PopupHelper {
 const popupHelper = new PopupHelper();
 
 class API {
-  TREE = {};
+  // Tree-related part is for fetching the most up-to-date tree data, which is no longer
+  // needed as a copy of the whole tree is always tracked and kept in the memory
 
-  async loadTree() {
-    this.removeTree();
+  // TREE = {};
+
+  // async loadTree() {
+  //   this.removeTree();
     
-    await this.loadSpecificTree("/get_tree_data/");
-    for (let shareId of shared) {
-      await this.loadSpecificTree("/get_tree_data/?share_id=" + shareId);
-    }
-  }
+  //   await this.loadSpecificTree("/get_tree_data/");
+  //   for (let shareId of shared) {
+  //     await this.loadSpecificTree("/get_tree_data/?share_id=" + shareId);
+  //   }
+  // }
 
-  async loadSpecificTree(path) {
-    const treeDataRaw = await origFetch(DOMAIN + path);
-    const treeData = await treeDataRaw.json();
+  // async loadSpecificTree(path) {
+  //   const treeDataRaw = await origFetch(DOMAIN + path);
+  //   const treeData = await treeDataRaw.json();
 
-    let notArray = false;
-    for (let data of treeData.items) {
-      if (notArray || !Array.isArray(data)) {
-        notArray = true;
-        await this.addNodeToParsedData(this.TREE, data);
-        continue;
-      }
+  //   let notArray = false;
+  //   for (let data of treeData.items) {
+  //     if (notArray || !Array.isArray(data)) {
+  //       notArray = true;
+  //       await this.addNodeToParsedData(this.TREE, data);
+  //       continue;
+  //     }
 
-      for (let subData of data) {
-        await this.addNodeToParsedData(this.TREE, subData);
-      }
-    }
-  }
+  //     for (let subData of data) {
+  //       await this.addNodeToParsedData(this.TREE, subData);
+  //     }
+  //   }
+  // }
 
-  async addNodeToParsedData(parsedData, item) {
-    let id = item.id;
-    parsedData[id] = {};
-      if (item.nm !== undefined) {
-        parsedData[id].name = await encrypter.decrypt(item.nm);
-      }
-      if (item.no !== undefined) {
-        parsedData[id].description = await encrypter.decrypt(item.no);
-      }
-  }
+  // async addNodeToParsedData(parsedData, item) {
+  //   let id = item.id;
+  //   parsedData[id] = {};
+  //     if (item.nm !== undefined) {
+  //       parsedData[id].name = await encrypter.decrypt(item.nm);
+  //     }
+  //     if (item.no !== undefined) {
+  //       parsedData[id].description = await encrypter.decrypt(item.no);
+  //     }
+  // }
 
-  async removeTree() {
-    this.TREE = {};
-  }
+  // async removeTree() {
+  //   this.TREE = {};
+  // }
 
   async pushAndPoll(id, operations) {
+    // TODO: WHat if synced node is a subnode of a non-synced node
     let rawBody = {
       client_id: clientId,
       client_version: clientVersion,
@@ -1209,7 +853,7 @@ class Encrypter {
       const base64Buff = this.buff_to_base64(buff);
       return base64Buff;
     } catch (e) {
-      console.warn(`Encryption error`, e);
+      console.warn(`[Workflowy Encrypter] Encryption error`, e);
       return "";
     }
   }
@@ -1232,7 +876,7 @@ class Encrypter {
       );
       return this.dec.decode(decryptedContent);
     } catch (e) {
-      console.warn(`Encryption error`, e);
+      console.warn(`[Workflowy Encrypter] Encryption error`, e);
       return "";
     }
   }
@@ -1241,14 +885,6 @@ const encrypter = new Encrypter();
 encrypter.loadSecret();
 
 class Util {
-  endpointMatches(path, method, url, params) {
-    return url.includes(DOMAIN + path) && method === params.method;
-  }
-  
-  isString(val) {
-    return typeof val === 'string' || val instanceof String;
-  }
-  
   async encodeBody(rawBody) {
     let body = {};
     let list = rawBody.split("&");
@@ -1272,7 +908,7 @@ class Util {
       }
   
       let val = body[key];
-      if (!this.isString(val)) {
+      if (!u.isString(val)) {
         val = JSON.stringify(val);
       }
       val = encodeURIComponent(val).replaceAll("%20", "+");
@@ -1282,6 +918,8 @@ class Util {
   }
 
   async processNewTreeData(data) {
+    let enforce = false;
+    let id = data.id;
     let properties = {};
     properties[PROPERTIES.PARENT] = data.prnt;
     if (data.nm !== undefined) {
@@ -1293,11 +931,17 @@ class Util {
       properties[PROPERTIES.DESCRIPTION] = data.no;
     }
 
-    nodes.update(data.id, properties);
+    if (data.as) {
+      properties[PROPERTIES.LOCAL_ID] = data.id;
+      id = nodes.find(PROPERTIES.SHARE_ID, data.as, true)[0] ?? id;
+      enforce = true; // Enforce parent
+    }
+
+    nodes.update(id, properties, enforce);
   }
 
   decodeVal(val) {
-    if (!this.isString(val)) {
+    if (!u.isString(val)) {
       val = JSON.stringify(val);
     }
     val = encodeURIComponent(val).replaceAll("%20", "+");
@@ -1645,7 +1289,7 @@ class Util {
 
           if (flags.includes(FLAGS.FORCE_DECRYPT)) {
             node[contentTag] = await encrypter.decrypt(node[contentTag]);
-          } else if (nodes.isLocked(nodes.getParent(id)) && node && contentTag && node[contentTag] && util.isString(node[contentTag]) && node[contentTag].length > 0) {
+          } else if (nodes.isLocked(nodes.getParent(id)) && node && contentTag && node[contentTag] && u.isString(node[contentTag]) && node[contentTag].length > 0) {
             node[contentTag] = await encrypter.encrypt(node[contentTag]);
           }
         }
@@ -1659,95 +1303,67 @@ class Util {
       item.node[contentTag] = JSON.stringify(item.node[contentTag]);
     }
   }
+
+  // For debugging
+  async getTree(targetParent = null) {
+    let tree = [];
+    let nodeIds = nodes.getChildren(targetParent)
+    for (let nodeId of nodeIds) {
+      let node = nodes.get(nodeId);
+      
+      let treeNode = {
+        share_id: nodes.getShareId(nodeId),
+        id: nodeId,
+        name: nodes.get(nodeId, PROPERTIES.NAME),
+        name_encrypted: await encrypter.encrypt(nodes.get(nodeId, PROPERTIES.NAME)),
+        description: nodes.get(nodeId, PROPERTIES.DESCRIPTION),
+        locked: nodes.isLocked(nodeId),
+        data: node,
+        children: await this.getTree(nodeId)
+      };
+      tree.push(treeNode);
+    }
+    return tree;
+  }
 }
 const util = new Util();
 
-// Fetch wrapper [https://stackoverflow.com/a/64961272]
-const {fetch: origFetch} = window;
-window.fetch = async (...args) => {
-  if (quarantine) {
-    return;
-  }
-  
-  let url = args[0];
-  let params = args[1];
+class RouteHandler {
+  async prePushAndPoll(params) {
+    // Encrypt submitted push_and_poll data
+    let body = await util.encodeBody(params.body);
+    crosscheckUserId = body.crosscheck_user_id;
+    clientId = body.client_id;
+    clientVersion = body.client_version;
+    wfBuildDate = params.headers.WF_BUILD_DATE;
+    for (let pushPollData of body.push_poll_data) {
+      if (pushPollData.operations === undefined) {
+        continue;
+      }
 
-  params = await onPreFetch(url, params);
-  if (quarantine) {
-    return;
-  }
-  args[1] = params;
-  
-  const response = await origFetch(...args);
+      for (let operation of pushPollData.operations) {
+        let dataObj = [];
+        let stringifyJson = [];
 
-  return await onPostFetch(url, params, response);
-};
+        // Extract data object list
+        let result = await util.processOperation(operation, dataObj, stringifyJson);
+        if (quarantine) {
+          return false;
+        } else if (result === false) {
+          continue;
+        }
 
-// Modify request params
-async function onPreFetch(url, params) {
-  // Encrypt submitted push_and_poll data
-  if (!util.endpointMatches("/push_and_poll", "POST", url, params)) {
+        // Process data objects
+        result = await util.processDataObjects(dataObj);
+        result = await util.processDataToStringify(stringifyJson);
+      }
+    }
+    params.body = await util.decodeBody(body);
+
     return params;
   }
 
-  let body = await util.encodeBody(params.body);
-  crosscheckUserId = body.crosscheck_user_id;
-  clientId = body.client_id;
-  clientVersion = body.client_version;
-  wfBuildDate = params.headers.WF_BUILD_DATE;
-  for (let pushPollData of body.push_poll_data) {
-    if (pushPollData.operations === undefined) {
-      continue;
-    }
-
-    for (let operation of pushPollData.operations) {
-      let dataObj = [];
-      let stringifyJson = [];
-
-      // Extract data object list
-      let result = await util.processOperation(operation, dataObj, stringifyJson);
-      if (quarantine) {
-        return false;
-      } else if (result === false) {
-        continue;
-      }
-
-      // Process data objects
-      result = await util.processDataObjects(dataObj);
-      result = await util.processDataToStringify(stringifyJson);
-    }
-  }
-  params.body = await util.decodeBody(body);
-
-  return params;
-}
-
-// Modify response body
-async function onPostFetch(url, params, response) {
-  // Update mostRecentOperationTransactionId
-  let responseData = await response.clone().json();
-  if (responseData.results && Array.isArray(responseData.results) && responseData.results > 0 && responseData.results[0].new_most_recent_operation_transaction_id) {
-    mostRecentOperationTransactionId = responseData.results[0].new_most_recent_operation_transaction_id;
-  }
-
-  if (util.endpointMatches("/get_tree_data", "GET", url, params)) {
-    await toast.show("Loading...", "Decrypting nodes", url);
-    let notArray = false;
-    for (let data of responseData.items) {
-      if (notArray || !Array.isArray(data)) {
-        notArray = true;
-        await util.processNewTreeData(data);
-        continue;
-      }
-
-      for (let subData of data) {
-        await util.processNewTreeData(subData);
-      }
-    }
-
-    await toast.hide(url);
-    return new Response(JSON.stringify(responseData));
-  } else if (util.endpointMatches("/push_and_poll", "POST", url, params)) {
+  async postPushAndPoll(responseData) {
     // TODO: Find another point to clear cache later
     if (!cacheClearPerformed) {
       cache.clear();
@@ -1783,7 +1399,28 @@ async function onPostFetch(url, params, response) {
     }
 
     return new Response(JSON.stringify(responseData));
-  } else if (util.endpointMatches("/get_initialization_data", "GET", url, params)) {
+  }
+
+  async postGetTreeData(url, responseData) {
+    await toast.show("Loading...", "Decrypting nodes", url);
+    let notArray = false;
+    for (let data of responseData.items) {
+      if (notArray || !Array.isArray(data)) {
+        notArray = true;
+        await util.processNewTreeData(data);
+        continue;
+      }
+
+      for (let subData of data) {
+        await util.processNewTreeData(subData);
+      }
+    }
+
+    await toast.hide(url);
+    return new Response(JSON.stringify(responseData));
+  }
+
+  async postGetInitializationData(responseData) {
     shared = [];
     for (let info of responseData.projectTreeData.auxiliaryProjectTreeInfos) {
       if (info.rootProject.id !== undefined) {
@@ -1793,8 +1430,59 @@ async function onPostFetch(url, params, response) {
       }
       shared.push(info.shareId);
     }
-    return response;
+    return new Response(JSON.stringify(responseData));
+  }
+}
+const routes = new RouteHandler();
+
+class FetchWrapper {
+  /**
+   * Modify and return request params
+   */
+  async onPreFetch(url, params) {
+    if (u.endpointMatches("/push_and_poll", "POST", url, params)) {
+      return await routes.prePushAndPoll(params);
+    }
+    return params;
   }
 
-  return response;
+  /**
+   * Modify response body
+   */
+  async onPostFetch(url, params, response) {
+    let responseData = await response.clone().json();
+    if (responseData.results && Array.isArray(responseData.results) && responseData.results.length > 0 && responseData.results[0].new_most_recent_operation_transaction_id) {
+      mostRecentOperationTransactionId = responseData.results[0].new_most_recent_operation_transaction_id;
+    }
+
+    if (u.endpointMatches("/get_tree_data", "GET", url, params)) {
+      return await routes.postGetTreeData(url, responseData);
+    } else if (u.endpointMatches("/push_and_poll", "POST", url, params)) {
+      return await routes.postPushAndPoll(responseData);
+    } else if (u.endpointMatches("/get_initialization_data", "GET", url, params)) {
+      return await routes.postGetInitializationData(responseData);
+    }
+    return response;
+  }
 }
+const fetchWrapper = new FetchWrapper();
+
+// Fetch wrapper [https://stackoverflow.com/a/64961272]
+window.fetch = async (...args) => {
+  if (quarantine) {
+    return;
+  }
+  
+  let url = args[0];
+  let params = args[1];
+
+  params = await fetchWrapper.onPreFetch(url, params);
+  if (quarantine) {
+    return;
+  }
+  args[1] = params;
+  
+  const response = await origFetch(...args);
+
+  return await fetchWrapper.onPostFetch(url, params, response);
+};

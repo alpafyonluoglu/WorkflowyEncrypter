@@ -1,0 +1,48 @@
+/* For a native look, HTML and CSS are taken from the Workflowy's site */
+._toast-container {
+    overflow: hidden;
+    position: fixed;
+    left: 0px;
+    right: 0px;
+    bottom: 45px;
+    overflow: hidden;
+    z-index: 1002;
+    transition: left 0.25s ease 0s;
+    display: flex;
+    justify-content: center;
+    -webkit-box-pack: center;
+}
+
+._toast {
+    transition: transform 300ms ease 0s;
+    font-size: 15px;
+    padding: 8px 12px;
+    text-align: center;
+    background-color: rgb(131, 162, 206);
+    color: rgb(44, 53, 49);
+    max-width: 60%;
+    border-radius: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    display: flex;
+    align-items: center;
+    -webkit-box-align: center;
+    visibility: hidden;
+}
+
+._message {
+    flex-grow: 1;
+    -webkit-box-flex: 1;
+    flex-shrink: 1;
+    line-height: 1.4;
+    padding: 0px 8px;
+    border-color: initial;
+    outline-color: initial;
+    background-image: initial;
+    background-color: transparent;
+    margin: 0;
+    border: 0;
+    outline: 0;
+    font-size: 100%;
+    vertical-align: baseline;
+    background: transparent;
+}

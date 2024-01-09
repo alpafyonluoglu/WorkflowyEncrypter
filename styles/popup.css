@@ -1,0 +1,186 @@
+/* For a native look, HTML and CSS are taken from the Workflowy's site */
+._popup-container {
+    visibility: hidden;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    left: 0px;
+    right: 0px;
+    top: 0px;
+    bottom: 0px;
+    overflow: hidden;
+    z-index: 1003;
+    display: flex;
+    justify-content: center;
+    -webkit-box-pack: center;
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+._popup {
+    font-size: 15px;
+
+    position: absolute;
+    margin-top: 10vh;
+    max-height: calc(100% - 20vh);
+    width: calc((100% - 36px) - 36px);
+    flex-shrink: 0;
+    padding: 36px;
+    box-sizing: border-box;
+    max-width: 576px;
+    overflow: auto;
+    border-radius: 6px;
+    box-shadow: rgba(0, 0, 0, 0.12) 0px 2px 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    transition: transform 300ms ease 0s, opacity 300ms ease 0s, height 1s ease-in-out 0s;
+    min-height: 0px;
+
+    background: rgb(255, 255, 255);
+    color: rgb(42, 49, 53);
+    border: 1px solid rgb(220, 224, 226);
+}
+
+._popup-content {
+    transition: all .3s ease-in-out;
+    opacity: 1;
+}
+
+._popup-title {
+    margin-top: 0px;
+    margin-bottom: 0px;
+    font-size: 26px;
+    font-weight: bold;
+    line-height: normal;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    margin-right: 40px;
+    position: relative;
+    top: -4px;
+}
+
+._popup-text {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    font-size: 100%;
+    vertical-align: baseline;
+    background: transparent;
+    margin-top: 12px;
+    line-height: 20px;
+    margin-bottom: 24px;
+}
+
+._input {
+    display: flex;
+    margin-top: 12px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    font-size: 100%;
+    vertical-align: baseline;
+    background: transparent;
+}
+
+._input-text {
+    min-width: 96px;
+    font-size: 15px;
+    line-height: 30px;
+}
+
+._input-box-container {
+    display: flex;
+    flex-direction: column;
+    border-radius: 4px;
+    background: rgb(255, 255, 255);
+    color: rgb(42, 49, 53);
+    margin: 0px;
+    padding: 8px;
+    border: 1px solid rgb(220, 224, 226);
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+._input-box {
+    text-transform: none;
+    text-indent: 0px;
+    text-shadow: none;
+    text-align: start;
+    -webkit-rtl-ordering: logical;
+    cursor: text;
+    user-select: text;
+
+    text-rendering: auto;
+    letter-spacing: normal;
+    word-spacing: normal;
+    text-transform: none;
+    text-indent: 0px;
+    text-shadow: none;
+    text-align: start;
+    -webkit-rtl-ordering: logical;
+    cursor: text;
+    writing-mode: horizontal-tb !important;
+    padding-block: 1px;
+    padding-inline: 2px;
+
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    appearance: none;
+    border-radius: 4px;
+    outline: none;
+    background: rgb(255, 255, 255);
+    color: rgb(42, 49, 53);
+    margin: 0px;
+    padding: 8px;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 15px;
+    -webkit-tap-highlight-color: transparent;
+}
+::placeholder {
+    opacity: 0.5;
+}
+
+._popup-buttons {
+    text-align: center;
+    margin-top: 24px;
+}
+
+._popup-button {
+    text-rendering: auto;
+    letter-spacing: normal;
+    word-spacing: normal;
+    text-transform: none;
+    text-indent: 0px;
+    text-shadow: none;
+    align-items: flex-start;
+    margin: 0em;
+    padding-block: 1px;
+    padding-inline: 6px;
+    
+    display: inline-block;
+    position: relative;
+    appearance: none;
+    border: none;
+    outline: none;
+    border-radius: 12px;
+    box-sizing: border-box;
+    line-height: 16px;
+    padding: 4px 12px;
+    background: rgb(236, 238, 240);
+    color: rgb(42, 49, 53);
+    font-family: inherit;
+    font-weight: 500;
+    font-size: 12px;
+    text-align: center;
+    text-decoration: none;
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+}
+._popup-button:hover, ._popup-button:focus {
+    background: rgb(221, 224, 226);
+}
