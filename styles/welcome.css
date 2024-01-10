@@ -54,6 +54,7 @@
     font-family: Open Sans, sans-serif;
     font-size: 24px;
     font-weight: 700;
+    opacity: 0.9;
     
     line-height: 64px;
     -webkit-text-size-adjust: 100%;
@@ -66,6 +67,7 @@
     line-height: 64px;
     font-weight: 400;
     cursor: default;
+    opacity: 0.9;
 }
 
 ._html1-title-white {

@@ -199,22 +199,51 @@ const nodes = new NodeTracker();
 class ComponentLoader {
   // For a native look, HTML and CSS are taken from the Workflowy's site
   async getPopupContainerHTML() {
-    let path = u.getInternalVar("htmlPopupContainer")
+    let path = u.getInternalVar("htmlPopupContainer");
     return await this.readFile(path);
   }
 
   async getToastContainerHTML() {
-    let path = u.getInternalVar("htmlToastContainer")
+    let path = u.getInternalVar("htmlToastContainer");
     return await this.readFile(path);
   }
 
   async getWelcomeCss() {
-    let path = u.getInternalVar("cssWelcome")
-    return await this.readFile(path);
+    let path = u.getInternalVar("cssWelcome");
+    let css = await this.readFile(path);
+
+    switch (theme) {
+      case THEMES.DARK:
+        let path = u.getInternalVar("cssWelcomeDark");
+        css += '\n' + await this.readFile(path);
+        break;
+      case THEMES.LIGHT:
+      default:
+        break;
+    }
+
+    return css;
+  }
+
+  async getPopupCss() {
+    let path = u.getInternalVar("cssPopup");
+    let css = await this.readFile(path);
+
+    switch (theme) {
+      case THEMES.DARK:
+        let path = u.getInternalVar("cssPopupDark");
+        css += '\n' + await this.readFile(path);
+        break;
+      case THEMES.LIGHT:
+      default:
+        break;
+    }
+
+    return css;
   }
 
   async getWelcomeHtml(id, properties = {}) {
-    let path = u.getInternalVar("htmlPopupWelcome" + id)
+    let path = u.getInternalVar("htmlPopupWelcome" + id);
     return await this.parseProperties(await this.readFile(path), properties);
   }
 
@@ -333,15 +362,20 @@ class Popup {
         }];
       }
 
-      // Apply custom styles
+      // Create popup
+      document.body.insertAdjacentHTML("afterbegin", await components.getPopupContainerHTML());
+      u.updateTheme();
+      var popupElement = document.getElementById("_popup");
+      var element = document.createElement('style');
+      element.innerHTML = await components.getPopupCss();
+      popupElement.appendChild(element);
       if (args.style) {
         var element = document.createElement('style');
         element.innerHTML = args.style;
-        document.body.appendChild(element);
+        popupElement.appendChild(element);
       }
+      await u.sleep(300);
 
-      // Create popup
-      document.body.insertAdjacentHTML("afterbegin", await components.getPopupContainerHTML());
       Popup.args.pageCount = args.pages.length;
       Popup.args.currentPage = 0;
       this.setPage(0);
@@ -599,7 +633,7 @@ class PopupHelper {
           html: [{
             position: "afterbegin",
             content: await components.getWelcomeHtml(3, {
-              ss1_url: u.getInternalVar("ss1Url")
+              ss1_url: theme === THEMES.LIGHT ? u.getInternalVar("ss1Url") : u.getInternalVar("ss1DarkUrl")
             })
           }]
         },
@@ -780,7 +814,7 @@ class Encrypter {
       location.reload();
     }
     this.SECRET = secret;
-    secretLoaded = true;
+    this.secretLoaded = true;
   }
 
   async encrypt(data) {

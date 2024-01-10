@@ -1,0 +1,28 @@
+._popup {
+    background: rgb(42, 49, 53);
+    color: rgb(255, 255, 255);
+    box-shadow: rgba(0, 0, 0, 0.12) 0px 2px 20px;
+    border: 1px solid rgb(92, 96, 98);
+}
+
+._input-box-container {
+    background: rgb(42, 49, 53);
+    color: rgb(255, 255, 255);
+    border: 1px solid rgb(92, 96, 98);
+}
+._input-box-container input, ._input-box-container select {
+    color: rgb(255, 255, 255);;
+}
+
+._input-box {
+    background: rgb(42, 49, 53);
+    color: rgb(255, 255, 255);
+}
+
+._popup-button {
+    background: rgb(66, 72, 75);
+    color: rgb(255, 255, 255);
+}
+._popup-button:hover, ._popup-button:focus {
+    background: rgb(93, 96, 98)
+}

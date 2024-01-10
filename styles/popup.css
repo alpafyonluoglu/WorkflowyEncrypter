@@ -1,6 +1,7 @@
 /* For a native look, HTML and CSS are taken from the Workflowy's site */
 ._popup-container {
     visibility: hidden;
+    opacity: 0;
     position: fixed;
     width: 100%;
     height: 100%;
