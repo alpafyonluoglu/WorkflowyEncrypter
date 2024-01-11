@@ -283,7 +283,11 @@ const components = new ComponentLoader();
  */
 class Toast {
   PROCESSES = {}
-  processActive = false; // If there is a toast message being shown
+  static processActive = false; // If there is a toast message being shown or queued
+  static toastShown = false; // If the toast message is currently visible
+  static toastFullyShown = false; // If the toast message is fully visible
+  timeout = null;
+  delay = 100;
 
   async init() {
     document.body.insertAdjacentHTML("afterbegin", await components.getToastContainerHTML());
@@ -294,40 +298,55 @@ class Toast {
       title: title,
       text: text
     };
-    if (!this.processActive) {
-      // Create toast message
-      this.processActive = true;
-      document.getElementById("_message").innerHTML = "<span><b>" + title + "</b> " + text + "</span>";
+    if (!Toast.processActive) {
+      Toast.processActive = true;
 
-      let toastElement = document.getElementById("_toast2");
-      let height = toastElement.offsetHeight;
-      toastElement.style.marginBottom = "-" + height + "px";
-      await u.sleep(50);
-      toastElement.style.visibility = "visible";
-      toastElement.style.transition = "all .3s ease-in-out";
-      await u.sleep(50);
-      toastElement.style.marginBottom = "0px";
-      await u.sleep(300);
+      this.timeout = setTimeout(async function () {
+        // Create toast message
+        Toast.toastShown = true;
+        document.getElementById("_message").innerHTML = "<span><b>" + title + "</b> " + text + "</span>";
+
+        let toastElement = document.getElementById("_toast2");
+        let height = toastElement.offsetHeight;
+        toastElement.style.marginBottom = "-" + height + "px";
+        await u.sleep(50);
+        toastElement.style.visibility = "visible";
+        toastElement.style.transition = "all .3s ease-in-out";
+        await u.sleep(50);
+        toastElement.style.marginBottom = "0px";
+        await u.sleep(300);
+        Toast.toastFullyShown = true;
+
+      }, this.delay);
     }
   }
 
   async hide(relatedNodeId) {
     delete this.PROCESSES[relatedNodeId];
 
-    if (this.PROCESSES.length === 0) {
+    if (this.PROCESSES.length > 0) {
       let title = this.PROCESSES[0].title;
       let text = this.PROCESSES[0].text;
       document.getElementById("_message").innerHTML = "<span><b>" + title + "</b> " + text + "</span>";
       return;
     }
 
-    this.processActive = false;
-    let toastElement = document.getElementById("_toast2");
-    let height = toastElement.offsetHeight;
-    toastElement.style.marginBottom = "-" + height + "px";
-    await u.sleep(300);
-    toastElement.style.visibility = "hidden";
-    toastElement.style.transition = "all 0s";
+    clearTimeout(this.timeout);
+    Toast.processActive = false;
+    if (Toast.toastShown) {
+      while (!Toast.toastFullyShown) {
+        await u.sleep(50);
+      }
+
+      Toast.toastShown = false;
+      Toast.toastFullyShown = false;
+      let toastElement = document.getElementById("_toast2");
+      let height = toastElement.offsetHeight;
+      toastElement.style.marginBottom = "-" + height + "px";
+      await u.sleep(300);
+      toastElement.style.visibility = "hidden";
+      toastElement.style.transition = "all 0s";
+    }
   }
 }
 const toast = new Toast();
