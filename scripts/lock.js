@@ -18,6 +18,11 @@ const {fetch: origFetch} = window;
 
 const DEFAULT_SHARE_ID = 'DEFAULT';
 
+const POPUP_TYPES = {
+  DEFAULT: 0,
+  MINI: 1
+};
+
 const THEMES = {
   LIGHT: "light",
   DARK: "dark"
@@ -208,6 +213,11 @@ class ComponentLoader {
     return await this.readFile(path);
   }
 
+  async getPopupCloseHTML() {
+    let path = u.getInternalVar("htmlPopupClose");
+    return await this.readFile(path);
+  }
+
   async getWelcomeCss() {
     let path = u.getInternalVar("cssWelcome");
     let css = await this.readFile(path);
@@ -225,13 +235,19 @@ class ComponentLoader {
     return css;
   }
 
-  async getPopupCss() {
+  async getPopupCss(type = POPUP_TYPES.DEFAULT) {
     let path = u.getInternalVar("cssPopup");
     let css = await this.readFile(path);
+
+    path = u.getInternalVar("cssPopupType" + type);
+    css += '\n' + await this.readFile(path);
 
     switch (theme) {
       case THEMES.DARK:
         let path = u.getInternalVar("cssPopupDark");
+        css += '\n' + await this.readFile(path);
+
+        path = u.getInternalVar("cssPopupType" + type + "Dark");
         css += '\n' + await this.readFile(path);
         break;
       case THEMES.LIGHT:
@@ -322,6 +338,7 @@ toast.init();
  * Async popup with multiple pages
  * Call with await to block the execution until the popup is closed
  * args: {
+ *  type: int,
  *  style: string,
  *  pages: [{
  *   title: string,
@@ -334,6 +351,7 @@ toast.init();
  *    outcome: int,
  *    text: string,
  *    focus: bool,
+ *    primary: bool,
  *    onClick: function
  *   }],
  *   html: [{
@@ -367,7 +385,7 @@ class Popup {
       u.updateTheme();
       var popupElement = document.getElementById("_popup");
       var element = document.createElement('style');
-      element.innerHTML = await components.getPopupCss();
+      element.innerHTML = await components.getPopupCss(args.type);
       popupElement.appendChild(element);
       if (args.style) {
         var element = document.createElement('style');
@@ -378,6 +396,8 @@ class Popup {
 
       Popup.args.pageCount = args.pages.length;
       Popup.args.currentPage = 0;
+      Popup.args.cancellable = cancellable;
+      Popup.args.type = Popup.args.type ?? POPUP_TYPES.DEFAULT;
       this.setPage(0);
       this.show();
 
@@ -404,9 +424,24 @@ class Popup {
     popupBoxElement.style.transform = "scale(1)";
     popupElement.style.opacity = "1";
     await u.sleep(300);
+
+    if (document.activeElement) {
+      Popup.args.activeElement = document.activeElement;
+      document.activeElement.blur();
+    }
+    if (Popup.args.type === POPUP_TYPES.MINI) {
+      document.addEventListener('keydown', Popup.onKeyPress);
+    }
   }
 
   async hide(outcome = OUTCOMES.CANCEL) {
+    if (Popup.args.type === POPUP_TYPES.MINI) {
+      document.removeEventListener('keydown', Popup.onKeyPress);
+    }
+    if (Popup.args.activeElement) {
+      Popup.args.activeElement.focus();
+    }
+
     let popupElement = document.getElementById("_popup");
     let popupBoxElement = document.getElementById("_popup-box");
     popupElement.style.opacity = "0";
@@ -425,6 +460,8 @@ class Popup {
     const popupBoxElement = document.getElementById("_popup-box");
     const pageCount = Popup.args.pageCount;
     const endOfPages = pageIndex === pageCount - 1;
+    const cancellable = Popup.args.cancellable;
+    const type = Popup.args.type;
     const page = Popup.args.pages[pageIndex];
 
     const title = page["title"] ?? "";
@@ -481,25 +518,44 @@ class Popup {
     content.appendChild(buttonsElement);
     
     if (buttons.length === 0) {
-      buttons.push({
-        outcome: (endOfPages ? OUTCOMES.COMPLETE : OUTCOMES.NEXT),
-        text: (endOfPages ? "Close" : "Next"),
-        focus: true
-      })
+      if (type === POPUP_TYPES.DEFAULT) {
+        buttons.push({
+          outcome: (endOfPages ? OUTCOMES.COMPLETE : OUTCOMES.NEXT),
+          text: (endOfPages ? "Close" : "Next"),
+        })
+      } else {
+        buttons.push({
+          outcome: OUTCOMES.COMPLETE,
+          text: "Close",
+          primary: true
+        })
+      }
     }
 
     for (let i = 0; i < buttons.length; i++) {
       const buttonData = buttons[i];
 
       var buttonElement = document.createElement('button');
-      buttonElement.classList.add("_popup-button");
+      buttonElement.classList.add(type === POPUP_TYPES.DEFAULT ? "_popup-button" : (buttonData.primary ? "_popup-button-primary" : "_popup-button-secondary"));
       buttonElement.id = "_popup-button" + i;
       buttonElement.type = "button";
       buttonElement.setAttribute("data-id", i);
-      buttonElement.innerHTML = buttonData.text;
-      buttonElement.onclick = () => {
-        Popup.onClick(i, buttonData.outcome);
-      };
+      // Possibly change assigned keys for primary and secondary buttons in the future
+      buttonElement.innerHTML = type === POPUP_TYPES.DEFAULT
+        ? buttonData.text :
+        ('<span>' + buttonData.text + '</span><span class="' + (buttonData.primary ? '_popup-button-hint-primary' : '_popup-button-hint-secondary') + '">' + (buttonData.primary ? '&nbsp;⏎' : '&nbsp;esc') + '</span>');
+      
+        let onClickFunc = () => {
+          Popup.onClick(i, buttonData.outcome);
+        }
+        buttonElement.onclick = onClickFunc;
+      if (type === POPUP_TYPES.MINI) {
+        if (buttonData.primary) {
+          Popup.args.primaryOnClick = onClickFunc;
+        } else {
+          Popup.args.secondaryOnClick = onClickFunc;
+        }
+      }
       buttonsElement.appendChild(buttonElement);
 
       if (buttonData.focus === true) {
@@ -512,6 +568,13 @@ class Popup {
       for (let htmlItem of htmlList) {
         content.insertAdjacentHTML(htmlItem.position, htmlItem.content);
       }
+    }
+
+    if (cancellable && type === POPUP_TYPES.MINI) {
+      content.insertAdjacentHTML('beforeend', await components.getPopupCloseHTML());
+      document.getElementById("_popup-close").onclick = () => {
+        Popup.onClick(null, OUTCOMES.CANCEL);
+      };
     }
 
     await u.sleep(100);
@@ -546,6 +609,15 @@ class Popup {
       default:
       case OUTCOMES.IGNORE:
         return;
+    }
+  }
+
+  static async onKeyPress(event) {
+    event.stopPropagation();
+    if (event.key === 'Enter' || event.keyCode === 13) {
+      Popup.args.primaryOnClick();
+    } else if (event.key === 'Escape' || event.keyCode === 27) {
+      Popup.args.secondaryOnClick();
     }
   }
 }
@@ -606,7 +678,6 @@ class PopupHelper {
           buttons: [{
             outcome: OUTCOMES.CUSTOM,
             text: "Next",
-            focus: true,
             onClick: async function() {
               let key = document.getElementById("_input-box").value;
               if (key.replaceAll(" ", "").length === 0) {
@@ -1151,7 +1222,7 @@ class Util {
         if (
           flags.includes(FLAGS.SUPPRESS_WARNINGS)
           || (await popup.create(
-            "Confirm Decryption",
+            "Confirm decryption",
             "Are you sure you want to remove the " + LOCK_TAG + " tag and decrypt all child nodes? This will send decrypted content to Workflowy servers.",
             [
               {
@@ -1161,9 +1232,9 @@ class Util {
               {
                 text: "Decrypt",
                 outcome: OUTCOMES.COMPLETE,
-                focus: true
+                primary: true
               }
-            ], true)) === OUTCOMES.COMPLETE
+            ], true, {type: POPUP_TYPES.MINI})) === OUTCOMES.COMPLETE
         ) {
           await this.updateChildNodeEncryption(id, false, false, flags);
         } else {
@@ -1278,7 +1349,7 @@ class Util {
           flags.includes(FLAGS.SUPPRESS_WARNINGS)
           || decryptionAllowed
           || (await popup.create(
-            "Confirm Decryption",
+            "Confirm decryption",
             "Are you sure you want to move selected node(s) under a non-encrypted node and decrypt their data? This will send decrypted content to Workflowy servers.",
             [
               {
@@ -1288,9 +1359,9 @@ class Util {
               {
                 text: "Decrypt",
                 outcome: OUTCOMES.COMPLETE,
-                focus: true
+                primary: true
               }
-            ], true)) === OUTCOMES.COMPLETE
+            ], true, {type: POPUP_TYPES.MINI})) === OUTCOMES.COMPLETE
         ) {
           decryptionAllowed = true;
           await this.updateChildNodeEncryption(id, false, true, flags);
@@ -1460,7 +1531,7 @@ class RouteHandler {
       }
     }
     if (attentionNeeded.length > 0 && encrypter.secretLoaded) {
-      await popup.create("Heads Up!", LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers: <br>- " + attentionNeeded.join("<br>- "), [], true);
+      await popup.create("Heads Up!", LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers: <br>- " + attentionNeeded.join("<br>- "), [], true, {type: POPUP_TYPES.MINI});
     }
 
     return new Response(JSON.stringify(responseData));

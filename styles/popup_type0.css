@@ -1,0 +1,66 @@
+._popup-title {
+    margin-top: 0px;
+    margin-bottom: 0px;
+    font-size: 26px;
+    font-weight: bold;
+    line-height: normal;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    margin-right: 40px;
+    position: relative;
+    top: -4px;
+}
+
+._popup-text {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    font-size: 100%;
+    vertical-align: baseline;
+    background: transparent;
+    margin-top: 12px;
+    line-height: 20px;
+    margin-bottom: 24px;
+}
+
+._popup-buttons {
+    text-align: center;
+    margin-top: 24px;
+}
+
+._popup-button {
+    text-rendering: auto;
+    letter-spacing: normal;
+    word-spacing: normal;
+    text-transform: none;
+    text-indent: 0px;
+    text-shadow: none;
+    align-items: flex-start;
+    margin: 0em;
+    padding-block: 1px;
+    padding-inline: 6px;
+    
+    display: inline-block;
+    position: relative;
+    appearance: none;
+    border: none;
+    outline: none;
+    border-radius: 12px;
+    box-sizing: border-box;
+    line-height: 16px;
+    padding: 4px 12px;
+    background: rgb(236, 238, 240);
+    color: rgb(42, 49, 53);
+    font-family: inherit;
+    font-weight: 500;
+    font-size: 12px;
+    text-align: center;
+    text-decoration: none;
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+}
+._popup-button:hover, ._popup-button:focus {
+    background: rgb(221, 224, 226);
+}

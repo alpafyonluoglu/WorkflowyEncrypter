@@ -1,0 +1,22 @@
+._popup-button-secondary { 
+    color: rgb(158, 161, 162);
+}
+._popup-button-secondary:hover { 
+    background: rgb(66, 72, 75);
+}
+
+._popup-button-hint-secondary { 
+    color: rgb(158, 161, 162);
+}
+
+._popup-button-primary { 
+    background: rgb(51, 102, 119); 
+    color: rgb(255, 255, 255);
+} 
+._popup-button-primary:hover { 
+    background: rgb(75, 173, 223);
+} 
+
+._popup-button-hint-primary { 
+    color: rgb(255, 255, 255);
+}

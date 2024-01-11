@@ -5,6 +5,7 @@
     border: 1px solid rgb(92, 96, 98);
 }
 
+/* Common elements */
 ._input-box-container {
     background: rgb(42, 49, 53);
     color: rgb(255, 255, 255);
@@ -19,10 +20,10 @@
     color: rgb(255, 255, 255);
 }
 
-._popup-button {
-    background: rgb(66, 72, 75);
-    color: rgb(255, 255, 255);
+._popup-close {
+    color: rgb(124, 127, 129);
 }
-._popup-button:hover, ._popup-button:focus {
-    background: rgb(93, 96, 98)
+
+._popup-close:hover > ._popup-close-hover { 
+    background: rgb(53, 60, 63);
 }

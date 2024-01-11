@@ -1,0 +1,121 @@
+._popup-content {  
+    line-height:1;
+    text-size-adjust: 100%; 
+    font-weight: normal; 
+    user-select: text;
+}
+
+._popup-content * {
+    -webkit-tap-highlight-color: transparent;
+}
+
+._popup-content div {
+    /* margin: 0; 
+    padding: 0;  */
+    border: 0; 
+    outline: 0; 
+    /* font-size: 100%;  */
+    vertical-align: baseline; 
+    background: transparent;
+}
+
+._popup-title { 
+    margin: 0; 
+    padding: 0; 
+    border: 0; 
+    outline: 0; 
+    font-size: 100%; 
+    vertical-align: baseline; 
+    background: transparent;
+
+    margin-top: 0px; 
+    margin-bottom: 0px; 
+    font-size: 26px; 
+    font-weight: bold; 
+    line-height: normal; 
+    white-space: nowrap; 
+    text-overflow: ellipsis; 
+    overflow: hidden; 
+    margin-right: 40px; 
+    position: relative; 
+    top: -4px;
+} 
+
+._popup-text { 
+    margin-top: 12px; 
+    margin-bottom: 12px; 
+    line-height: 20px; 
+    font-size: 14px;
+} 
+
+._popup-buttons { 
+    display: flex; 
+    justify-content: flex-end; 
+    margin-top: 40px;
+} 
+
+._popup-button-secondary { 
+    display: inline-block; 
+    position: relative; 
+    appearance: none; 
+    border: none; 
+    outline: none; 
+    border-radius: 18px; 
+    box-sizing: border-box; 
+    line-height: 16px; 
+    padding: 10px 18px; 
+    margin-left: 0px; 
+    background: transparent;  
+    font-family: inherit; 
+    font-weight: 500; 
+    font-size: 15px; 
+    text-align: center; 
+    text-decoration: none; 
+    cursor: default; 
+    -webkit-tap-highlight-color: transparent; 
+    margin-right: 10px;
+
+    color: rgb(134, 140, 144);
+} 
+._popup-button-secondary:hover { 
+    text-decoration: none; 
+    background: rgb(236, 238, 240)
+} 
+
+._popup-button-hint-secondary { 
+    margin-left: 10px; 
+    font-size: 10px; 
+    color: rgb(134, 140, 144);
+}
+
+._popup-button-primary { 
+    display: inline-block; 
+    position: relative; 
+    appearance: none; 
+    border: none; 
+    outline: none; 
+    border-radius: 18px; 
+    box-sizing: border-box; 
+    line-height: 16px; 
+    padding: 10px 18px; 
+    margin-left: 0px; 
+    background: rgb(73, 186, 242);
+    color: rgb(255, 255, 255);
+    font-family: inherit; 
+    font-weight: 500; 
+    font-size: 15px; 
+    text-align: center; 
+    text-decoration: none; 
+    cursor: default; 
+    -webkit-tap-highlight-color: transparent;
+} 
+._popup-button-primary:hover { 
+    text-decoration: none; 
+    background: rgb(102, 173, 221);
+} 
+
+._popup-button-hint-primary { 
+    margin-left: 10px; 
+    font-size: inherit; 
+    color: rgb(255, 255, 255);
+} 

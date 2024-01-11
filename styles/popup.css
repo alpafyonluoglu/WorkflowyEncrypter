@@ -45,33 +45,7 @@
     opacity: 1;
 }
 
-._popup-title {
-    margin-top: 0px;
-    margin-bottom: 0px;
-    font-size: 26px;
-    font-weight: bold;
-    line-height: normal;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    overflow: hidden;
-    margin-right: 40px;
-    position: relative;
-    top: -4px;
-}
-
-._popup-text {
-    margin: 0;
-    padding: 0;
-    border: 0;
-    outline: 0;
-    font-size: 100%;
-    vertical-align: baseline;
-    background: transparent;
-    margin-top: 12px;
-    line-height: 20px;
-    margin-bottom: 24px;
-}
-
+/* Common elements */
 ._input {
     display: flex;
     margin-top: 12px;
@@ -146,42 +120,44 @@
     opacity: 0.5;
 }
 
-._popup-buttons {
-    text-align: center;
-    margin-top: 24px;
-}
+._popup-close {
+    color: rgb(183, 188, 191);
+    font-size: 12px; 
+    width: 20px; 
+    height: 20px; 
+    border-radius: 10px; 
+    cursor: default; 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    -webkit-box-align: center; 
+    justify-content: center; 
+    -webkit-box-pack: center; 
+    position: absolute; 
+    top: 36px; 
+    right: 36px;
+} 
 
-._popup-button {
-    text-rendering: auto;
-    letter-spacing: normal;
-    word-spacing: normal;
-    text-transform: none;
-    text-indent: 0px;
-    text-shadow: none;
-    align-items: flex-start;
-    margin: 0em;
-    padding-block: 1px;
-    padding-inline: 6px;
-    
-    display: inline-block;
-    position: relative;
-    appearance: none;
-    border: none;
-    outline: none;
-    border-radius: 12px;
-    box-sizing: border-box;
-    line-height: 16px;
-    padding: 4px 12px;
-    background: rgb(236, 238, 240);
-    color: rgb(42, 49, 53);
-    font-family: inherit;
-    font-weight: 500;
-    font-size: 12px;
-    text-align: center;
-    text-decoration: none;
-    cursor: default;
-    -webkit-tap-highlight-color: transparent;
-}
-._popup-button:hover, ._popup-button:focus {
-    background: rgb(221, 224, 226);
-}
+._popup-close-hover { 
+    position: absolute; 
+    width: 36px; 
+    height: 36px; 
+    top: 50%; 
+    left: 50%; 
+    margin-top: -18px; 
+    margin-left: -18px; 
+    border-radius: 18px;
+} 
+
+._popup-close:hover > ._popup-close-hover { 
+    background: rgb(248, 249, 250);
+} 
+
+._popup-close-hint { 
+    line-height: 20px; 
+    margin-bottom: -20px;
+} 
+
+._popup-close:hover > ._popup-close-hint {
+    opacity: 0;
+} 

@@ -1,0 +1,7 @@
+._popup-button {
+    background: rgb(66, 72, 75);
+    color: rgb(255, 255, 255);
+}
+._popup-button:hover, ._popup-button:focus {
+    background: rgb(93, 96, 98)
+}
