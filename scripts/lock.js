@@ -23,6 +23,12 @@ const POPUP_TYPES = {
   MINI: 1
 };
 
+const TOAST_STATES = {
+  HIDDEN: 0,
+  TRANSITIONING: 1,
+  SHOWN: 2
+};
+
 const THEMES = {
   LIGHT: "light",
   DARK: "dark"
@@ -282,11 +288,10 @@ const components = new ComponentLoader();
  * For non-interactive messages
  */
 class Toast {
-  PROCESSES = {}
-  static processActive = false; // If there is a toast message being shown or queued
-  static toastShown = false; // If the toast message is currently visible
-  static toastFullyShown = false; // If the toast message is fully visible
-  timeout = null;
+  static PROCESSES = {}
+  static state = TOAST_STATES.HIDDEN;
+  static timeoutShow = null;
+  static timeoutHide = null;
   delay = 100;
 
   async init() {
@@ -294,16 +299,29 @@ class Toast {
   }
 
   async show(title, text, relatedNodeId) {
-    this.PROCESSES[relatedNodeId] = {
+    Toast.PROCESSES[relatedNodeId] = {
       title: title,
       text: text
     };
-    if (!Toast.processActive) {
-      Toast.processActive = true;
 
-      this.timeout = setTimeout(async function () {
-        // Create toast message
-        Toast.toastShown = true;
+    if (Toast.state === TOAST_STATES.TRANSITIONING) {
+      while (Toast.state === TOAST_STATES.TRANSITIONING) {
+        await u.sleep(50);
+      }
+    }
+
+    if (Toast.timeoutHide !== null) {
+      clearTimeout(Toast.timeoutHide);
+      Toast.timeoutHide = null;
+    }
+
+    if (Toast.state === TOAST_STATES.HIDDEN && Toast.timeoutShow === null) {
+      Toast.timeoutShow = setTimeout(async function () {
+        Toast.state = TOAST_STATES.TRANSITIONING;
+
+        let process = Object.values(Toast.PROCESSES)[0];
+        let title = process.title;
+        let text = process.text;
         document.getElementById("_message").innerHTML = "<span><b>" + title + "</b> " + text + "</span>";
 
         let toastElement = document.getElementById("_toast2");
@@ -315,37 +333,49 @@ class Toast {
         await u.sleep(50);
         toastElement.style.marginBottom = "0px";
         await u.sleep(300);
-        Toast.toastFullyShown = true;
 
+        Toast.timeoutShow = null;
+        Toast.state = TOAST_STATES.SHOWN;
       }, this.delay);
     }
   }
 
   async hide(relatedNodeId) {
-    delete this.PROCESSES[relatedNodeId];
+    delete Toast.PROCESSES[relatedNodeId];
 
-    if (this.PROCESSES.length > 0) {
-      let title = this.PROCESSES[0].title;
-      let text = this.PROCESSES[0].text;
+    if (Object.values(Toast.PROCESSES).length > 0) {
+      let process = Object.values(Toast.PROCESSES)[0];
+      let title = process.title;
+      let text = process.text;
       document.getElementById("_message").innerHTML = "<span><b>" + title + "</b> " + text + "</span>";
       return;
     }
 
-    clearTimeout(this.timeout);
-    Toast.processActive = false;
-    if (Toast.toastShown) {
-      while (!Toast.toastFullyShown) {
+    if (Toast.state === TOAST_STATES.TRANSITIONING) {
+      while (Toast.state === TOAST_STATES.TRANSITIONING) {
         await u.sleep(50);
       }
+    }
 
-      Toast.toastShown = false;
-      Toast.toastFullyShown = false;
-      let toastElement = document.getElementById("_toast2");
-      let height = toastElement.offsetHeight;
-      toastElement.style.marginBottom = "-" + height + "px";
-      await u.sleep(300);
-      toastElement.style.visibility = "hidden";
-      toastElement.style.transition = "all 0s";
+    if (Toast.timeoutShow !== null) {
+      clearTimeout(Toast.timeoutShow);
+      Toast.timeoutShow = null;
+    }
+
+    if (Toast.state === TOAST_STATES.SHOWN && Toast.timeoutHide === null) {
+      Toast.timeoutHide = setTimeout(async function () {
+        Toast.state = TOAST_STATES.TRANSITIONING;
+
+        let toastElement = document.getElementById("_toast2");
+        let height = toastElement.offsetHeight;
+        toastElement.style.marginBottom = "-" + height + "px";
+        await u.sleep(300);
+        toastElement.style.visibility = "hidden";
+        toastElement.style.transition = "all 0s";
+
+        Toast.timeoutHide = null;
+        Toast.state = TOAST_STATES.HIDDEN;
+      }, this.delay);
     }
   }
 }
