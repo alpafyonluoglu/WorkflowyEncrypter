@@ -7,8 +7,28 @@
 //     }
 // });
 
-// chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-//     if (msg.query && msg.query == "getTabId") {
-//         sendResponse(sender.tab.id);
-//      }
-// });
+function encrypt(data) {
+    // TODO: Complete encryption here
+    return null;
+}
+
+function decrypt(data) {
+    // TODO: Complete decryption here
+    return null;
+}
+
+chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
+    let {func, params} = message;
+
+    switch (func) {
+        case "encrypt":
+            sendResponse(encrypt(params));
+            break;
+        case "decrypt":
+            sendResponse(decrypt(params));
+            break;
+        default:
+            sendResponse("Function not found");
+            break;
+    }
+});

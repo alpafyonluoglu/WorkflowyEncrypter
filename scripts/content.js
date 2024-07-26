@@ -50,13 +50,13 @@ function injectVar(key, value) {
 }
 
 window.addEventListener(EVENT_TO_CONTENT, function(message) {
-    let {func, params, id} = message.detail;
-    
-    // chrome.runtime.sendMessage();
-    callParams = {
-        response: "Called " + func + " with params: " + params,
-        id: id
-    }
+    let {id} = message.detail;
 
-    window.dispatchEvent(new CustomEvent(EVENT_TO_SCRIPT, {detail: callParams}));
+    chrome.runtime.sendMessage(message.detail, function(response) {
+        let callParams = {
+            response: response,
+            id: id
+        }
+        window.dispatchEvent(new CustomEvent(EVENT_TO_SCRIPT, {detail: callParams}));
+    });
 }, false);
