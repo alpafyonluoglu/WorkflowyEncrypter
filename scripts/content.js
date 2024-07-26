@@ -1,4 +1,9 @@
+const EVENT_TO_SCRIPT = "WfeEventToScript";
+const EVENT_TO_CONTENT = "WfeEventToContent";
+
 // Inject variables
+injectVar("eventToScript", EVENT_TO_SCRIPT);
+injectVar("eventToContent", EVENT_TO_CONTENT);
 injectVar("logoUrl", chrome.runtime.getURL('/src/logo_128.png'));
 injectVar("logoWUrl", chrome.runtime.getURL('/src/logo_w_128.png'));
 injectVar("keyUrl", chrome.runtime.getURL('/src/key_128.png'));
@@ -43,3 +48,15 @@ function injectVar(key, value) {
     variable.setAttribute('value', value);
     document.body.appendChild(variable);
 }
+
+window.addEventListener(EVENT_TO_CONTENT, function(message) {
+    let {func, params, id} = message.detail;
+    
+    // chrome.runtime.sendMessage();
+    callParams = {
+        response: "Called " + func + " with params: " + params,
+        id: id
+    }
+
+    window.dispatchEvent(new CustomEvent(EVENT_TO_SCRIPT, {detail: callParams}));
+}, false);

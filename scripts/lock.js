@@ -103,6 +103,41 @@ class BaseUtil {
 const u = new BaseUtil();
 u.updateTheme();
 
+const EVENT_TO_SCRIPT = u.getInternalVar("eventToScript");
+const EVENT_TO_CONTENT = u.getInternalVar("eventToContent");
+
+class ExtensionGateway {
+  static listenerCallbacks = {};
+
+  static init() {
+    window.addEventListener(EVENT_TO_SCRIPT, function(message) {
+      let {response, id} = message.detail;
+
+      if (ExtensionGateway.listenerCallbacks.hasOwnProperty(id)) {
+        let listenerCallback = ExtensionGateway.listenerCallbacks[id];
+        delete ExtensionGateway.listenerCallbacks[id];
+        listenerCallback(response);
+      }
+    }, false);
+  }
+
+  static call(func, params) {
+    return new Promise(resolve => {
+      const now = new Date();
+      let id = now.getMilliseconds();
+      let callParams = {
+        func: func,
+        params: params,
+        id: id
+      };
+
+      ExtensionGateway.listenerCallbacks[id] = resolve;
+      window.dispatchEvent(new CustomEvent(EVENT_TO_CONTENT, {detail: callParams}));
+    });
+  }
+}
+ExtensionGateway.init();
+
 class NodeTracker {
   NODES = {};
 
