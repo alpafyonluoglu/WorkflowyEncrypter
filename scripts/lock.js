@@ -120,7 +120,7 @@ class ExtensionGateway {
     }, false);
   }
 
-  static call(func, params = null) {
+  static call(func, ...params) {
     return new Promise(resolve => {
       const now = new Date();
       let id = now.getMilliseconds();
@@ -1451,7 +1451,7 @@ class RouteHandler {
         attentionNeeded.push(trackedChangeData[id]["name"]);
       }
     }
-    if (attentionNeeded.length > 0 && encrypter.secretLoaded) {
+    if (attentionNeeded.length > 0 && encrypter.secretLoaded) { // FIXME: secretLoaded is not accessible from lock script
       await popup.create("Heads Up!", LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers: <br>- " + attentionNeeded.join("<br>- "), [], true, {type: POPUP_TYPES.MINI});
     }
 

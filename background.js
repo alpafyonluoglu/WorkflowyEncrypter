@@ -211,17 +211,25 @@ class Encrypter {
 const encrypter = new Encrypter();
 encrypter.loadSecret();
 
-async function funcCallHandler(func, params) {
+function funcMapper(func) {
     switch (func) {
         case "encrypt":
-            return await encrypter.encrypt(params);
+            return encrypter.encrypt.bind(encrypter);
         case "decrypt":
-            return await encrypter.decrypt(params);
+            return encrypter.decrypt.bind(encrypter);
         case "clearCache":
-            return await cache.clear();
+            return cache.clear.bind(cache);
         default:
-            return "Function not found";
+            return null;
     }
+}
+
+async function funcCallHandler(func, params) {
+    let callableFunc = funcMapper(func);
+    if (callableFunc) {
+        return await callableFunc(...params);
+    }
+    return "Function not found";
 }
 
 chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
