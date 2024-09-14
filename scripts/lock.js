@@ -1,6 +1,5 @@
 const DOMAIN = "https://workflowy.com";
-const LOCK_TAG = "#private";
-const PRE_ENC_CHAR = "_";
+ const LOCK_TAG = "#private"; // TODO: Custom lock tag
 var shared = []; // Share IDs
 
 var trackedChanges = [];
@@ -121,7 +120,7 @@ class ExtensionGateway {
     }, false);
   }
 
-  static call(func, params) {
+  static call(func, params = null) {
     return new Promise(resolve => {
       const now = new Date();
       let id = now.getMilliseconds();
@@ -709,6 +708,7 @@ const popup = new Popup();
 
 class PopupHelper {
   async welcome() {
+    // TODO: popup is not created by the injected script anymore
     await u.sleep(2000);
     return await popup.create(null, null, [], false, {
       style: await components.getWelcomeCss(),
@@ -770,7 +770,7 @@ class PopupHelper {
                 toast.hide("KEY");
                 return OUTCOMES.IGNORE;
               } else {
-                window.localStorage.setItem("lockSecret", key);
+                window.localStorage.setItem("lockSecret", key); // TODO: no longer stored in window.localStorage
                 return OUTCOMES.NEXT;
               }
             }
@@ -911,179 +911,16 @@ class API {
 }
 const api = new API();
 
-class Cache {
-  get(key, defVal = null) {
-    let cacheData = window.localStorage.getItem("lockCache");
-    cacheData = cacheData ? JSON.parse(cacheData) : {};
-    return cacheData[key] ? cacheData[key].val : defVal; 
-  }
-
-  set(key, val) {
-    let cacheData = window.localStorage.getItem("lockCache");
-    cacheData = (cacheData !== null && cacheData !== undefined) ? JSON.parse(cacheData) : {};
-    cacheData[key] = {
-      val: val,
-      lastAccessed: Date.now()
-    };
-    window.localStorage.setItem("lockCache", JSON.stringify(cacheData));
-  }
-
-  clear(light = true) {
-    if (!light) {
-      window.localStorage.setItem("lockCache", undefined);
-      return;
-    }
-
-    let cacheData = window.localStorage.getItem("lockCache");
-    cacheData = (cacheData !== null && cacheData !== undefined) ? JSON.parse(cacheData) : {};
-
-    let now = Date.now();
-    let lifeDuration = 1000 * 60 * 60 * 24 * 7; // 1 week
-    for (let key in cacheData) {
-      if (now - cacheData[key].lastAccessed > lifeDuration) {
-        delete cacheData[key];
-      }
-    }
-
-    window.localStorage.setItem("lockCache", JSON.stringify(cacheData));
-  }
-}
-const cache = new Cache();
-
 class Encrypter {
-  SECRET;
-  enc;
-  dec;
-  secretLoaded = false;
-
-  constructor() {
-    this.enc = new TextEncoder();
-    this.dec = new TextDecoder();
-  }
-
-  async loadSecret() {
-    let secret = window.localStorage.getItem("lockSecret");
-    if (!secret || secret === null | secret === "null" || secret === "") {
-      await popupHelper.welcome();
-      window.onbeforeunload = null;
-      location.reload();
-    }
-    this.SECRET = secret;
-    this.secretLoaded = true;
-  }
-
   async encrypt(data) {
-    if (!this.SECRET || this.SECRET === null | this.SECRET === "null" || this.SECRET === "") {
-      return data;
-    }
-    const encryptedData = await this.encryptData(data, this.SECRET);
-    cache.set(PRE_ENC_CHAR + encryptedData, data);
-    return PRE_ENC_CHAR + encryptedData;
+    return await ExtensionGateway.call("encrypt", data);
   }
-  
+
   async decrypt(data) {
-    if (!data.startsWith(PRE_ENC_CHAR)) {
-      return data;
-    } else if (!this.SECRET || this.SECRET === null | this.SECRET === "null" || this.SECRET === "") {
-      return data;
-    }
-
-    let cachedDecryptedData = cache.get(data, null);
-    if (cachedDecryptedData !== null) {
-      return cachedDecryptedData;
-    }
-
-    let origData = data;
-    data = data.substring(PRE_ENC_CHAR.length);
-    const decryptedData = await this.decryptData(data, this.SECRET);
-    cache.set(origData, decryptedData);
-    return decryptedData || data;
-  }
-
-  // Encryption helper functions [https://github.com/bradyjoslin/webcrypto-example]
-  buff_to_base64 = (buff) => btoa(
-    new Uint8Array(buff).reduce(
-      (data, byte) => data + String.fromCharCode(byte), ''
-    )
-  );
-
-  base64_to_buf = (b64) =>
-    Uint8Array.from(atob(b64), (c) => c.charCodeAt(null));
-
-  getPasswordKey = (password) =>
-    window.crypto.subtle.importKey("raw", this.enc.encode(password), "PBKDF2", false, [
-      "deriveKey",
-    ]);
-
-  deriveKey = (passwordKey, salt, keyUsage) =>
-    window.crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: salt,
-        iterations: 250000,
-        hash: "SHA-256",
-      },
-      passwordKey,
-      { name: "AES-GCM", length: 256 },
-      false,
-      keyUsage
-    );
-
-  async encryptData(secretData, password) {
-    try {
-      const salt = window.crypto.getRandomValues(new Uint8Array(16));
-      const iv = window.crypto.getRandomValues(new Uint8Array(12));
-      const passwordKey = await this.getPasswordKey(password);
-      const aesKey = await this.deriveKey(passwordKey, salt, ["encrypt"]);
-      const encryptedContent = await window.crypto.subtle.encrypt(
-        {
-          name: "AES-GCM",
-          iv: iv,
-        },
-        aesKey,
-        this.enc.encode(secretData)
-      );
-
-      const encryptedContentArr = new Uint8Array(encryptedContent);
-      let buff = new Uint8Array(
-        salt.byteLength + iv.byteLength + encryptedContentArr.byteLength
-      );
-      buff.set(salt, 0);
-      buff.set(iv, salt.byteLength);
-      buff.set(encryptedContentArr, salt.byteLength + iv.byteLength);
-      const base64Buff = this.buff_to_base64(buff);
-      return base64Buff;
-    } catch (e) {
-      console.warn(`[Workflowy Encrypter] Encryption error`, e);
-      return "";
-    }
-  }
-
-  async decryptData(encryptedData, password) {
-    try {
-      const encryptedDataBuff = this.base64_to_buf(encryptedData);
-      const salt = encryptedDataBuff.slice(0, 16);
-      const iv = encryptedDataBuff.slice(16, 16 + 12);
-      const data = encryptedDataBuff.slice(16 + 12);
-      const passwordKey = await this.getPasswordKey(password);
-      const aesKey = await this.deriveKey(passwordKey, salt, ["decrypt"]);
-      const decryptedContent = await window.crypto.subtle.decrypt(
-        {
-          name: "AES-GCM",
-          iv: iv,
-        },
-        aesKey,
-        data
-      );
-      return this.dec.decode(decryptedContent);
-    } catch (e) {
-      console.warn(`[Workflowy Encrypter] Encryption error`, e);
-      return "";
-    }
+    return await ExtensionGateway.call("decrypt", data);
   }
 }
 const encrypter = new Encrypter();
-encrypter.loadSecret();
 
 class Util {
   async encodeBody(rawBody) {
@@ -1586,7 +1423,7 @@ class RouteHandler {
   async postPushAndPoll(responseData) {
     // Find another point to clear cache later
     if (!cacheClearPerformed) {
-      cache.clear();
+      await ExtensionGateway.call("clearCache");
       cacheClearPerformed = true;
     }
 
