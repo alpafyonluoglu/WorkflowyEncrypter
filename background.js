@@ -1,10 +1,30 @@
-// chrome.runtime.onInstalled.addListener(({ reason }) => {
-//     if (reason === 'install') {
-//         // TODO: Open welcome page
-//     }
-// });
+class Constants {
+    // All constants added here are accessible externally
+    // If needed, restrict access for certain constants
+    THEMES = {
+        LIGHT: "light",
+        DARK: "dark"
+    };
+    VAR_PREFIX = "var_";
+    PRE_ENC_CHAR = "_";
+    DEFAULT_LOCK_TAG = "#private";
+    RELOAD_REASONS = {
+        UPDATE: "extensionUpdate",
+        KEY_CHANGE: "keyChange",
+        TAG_CHANGE: "tagChange"
+    };
+    ACTIONS = {
+        SET_KEY: "setLockKey",
+        MOVE_KEY: "migrateLockKey",
+        OPEN_WORKFLOWY: "openWorkflowy",
+        WELCOME: "welcome"
+    };
 
-const PRE_ENC_CHAR = "_";
+    get(key) {
+        return this[key];
+    }
+}
+const c = new Constants();
 
 class ExtensionStorage {
     async get(key, defVal = null) {
@@ -21,6 +41,14 @@ class ExtensionStorage {
                 resolve();
             });
         });
+    }
+
+    async setVar(key, val) {
+        return await this.set(c.VAR_PREFIX + key, val);
+    }
+
+    async getVar(key, defVal = null) {
+        return await this.get(c.VAR_PREFIX + key, defVal);
     }
 }
 const storage = new ExtensionStorage();
@@ -69,6 +97,20 @@ class Cache {
 }
 const cache = new Cache();
 
+class Utils {
+    async getLockTag() {
+        return await storage.get("lockTag", c.DEFAULT_LOCK_TAG);
+    }
+
+    async broadcastReload(reason = null) {
+        await storage.setVar("reloadBroadcast", {
+            reason: reason,
+            time: new Date().getTime()
+        });
+    }
+}
+const utils = new Utils();
+
 class Encrypter {
     SECRET = null;
     enc;
@@ -80,32 +122,45 @@ class Encrypter {
     }
 
     async loadSecret() {
-        // TODO: Get secret from extension storage or show welcome page
-        // let secret = window.localStorage.getItem("lockSecret");
-        // if (!secret || secret === null | secret === "null" || secret === "") {
-        //   await popupHelper.welcome();
-        //   window.onbeforeunload = null;
-        //   location.reload();
-        // }
-        // this.SECRET = secret;
-        
-        // FIXME: Temp dummy secret
-        this.SECRET = "test";
+        this.SECRET = await storage.get("lockSecret", null);
+    }
+
+    async secretLoaded(bypassBlockerCheck = false) {
+        if (!bypassBlockerCheck && (await this.getBlocker()) !== null) {
+            return false;
+        }
+
+        await this.loadSecret();
+        return await this.isValidSecret(this.SECRET);
+    }
+
+    async isValidSecret(secret) {
+        return secret !== null && secret !== "null" && secret !== "";
+    }
+
+    async getBlocker() {
+        return await storage.get("blocker", null);
+    }
+
+    async setBlocker(blocker, bypassCheck = false) {
+        if (bypassCheck || (await this.getBlocker()) === null) {
+            await storage.set("blocker", blocker);
+        }
     }
 
     async encrypt(data) {
-        if (!this.secretLoaded()) {
+        if (!(await this.secretLoaded())) {
             return data;
         }
         const encryptedData = await this.encryptData(data, this.SECRET);
-        await cache.set(PRE_ENC_CHAR + encryptedData, data);
-        return PRE_ENC_CHAR + encryptedData;
+        await cache.set(c.PRE_ENC_CHAR + encryptedData, data);
+        return c.PRE_ENC_CHAR + encryptedData;
     }
 
     async decrypt(data) {
         if (
-            (!data.startsWith(PRE_ENC_CHAR)) ||
-            (!this.secretLoaded())
+            (!data.startsWith(c.PRE_ENC_CHAR)) ||
+            (!(await this.secretLoaded()))
         ) {
             return data;
         }
@@ -116,14 +171,10 @@ class Encrypter {
         }
 
         let origData = data;
-        data = data.substring(PRE_ENC_CHAR.length);
+        data = data.substring(c.PRE_ENC_CHAR.length);
         const decryptedData = await this.decryptData(data, this.SECRET);
         await cache.set(origData, decryptedData);
         return decryptedData || data;
-    }
-
-    secretLoaded() {
-        return !(!this.SECRET || this.SECRET === null || this.SECRET === "null" || this.SECRET === "");
     }
 
     // Encryption helper functions [https://github.com/bradyjoslin/webcrypto-example]
@@ -209,31 +260,165 @@ class Encrypter {
     }
 }
 const encrypter = new Encrypter();
-encrypter.loadSecret();
 
-function funcMapper(func) {
-    switch (func) {
-        case "encrypt":
-            return encrypter.encrypt.bind(encrypter);
-        case "decrypt":
-            return encrypter.decrypt.bind(encrypter);
-        case "clearCache":
-            return cache.clear.bind(cache);
-        default:
+class InstallHandler {
+    async onInstall(welcome = true) {
+        if (welcome) {
+            // Open Workflowy to set lock key
+            await encrypter.setBlocker(c.ACTIONS.WELCOME);
+            await this.openOptionsPage(c.ACTIONS.OPEN_WORKFLOWY);
+        }
+    }
+
+    async onUpdate() {
+        // Handle backward compatibility related actions
+        let prevVersionId = await storage.get("versionId", 0);
+        if (prevVersionId === 0) {
+            if (!(await encrypter.secretLoaded())) {
+                // TODO: Inject script to reload open workflowy pages
+                await encrypter.setBlocker(c.ACTIONS.MOVE_KEY);
+            }
+            return await this.onInstall(false);
+        }
+    }
+
+    async onListenerAction(reason) {
+        await staller.waitUntilReady();
+        switch (reason) {
+            case 'install':
+                await this.onInstall();
+                break;
+            case 'update':
+                await this.onUpdate();
+                break;
+        }
+        await storage.set("versionId", this.getVersionId());
+    }
+
+    async openOptionsPage(action = null, arg = null) {
+        await storage.set("optionsAction", [action, arg]);
+        chrome.runtime.openOptionsPage();
+    }
+
+    getVersionId() {
+        // Workflowy Enxcrypter uses semantic versioning (MAJOR.MINOR.PATCH)
+        // Each version component is assumed to be max 2 digits long
+        const currentVersion = chrome.runtime.getManifest().version;
+        let versionId = "";
+        for (let versionComponent of currentVersion.split(".")) {
+            versionId += versionComponent.padStart(2, "0");
+        }
+        return parseInt(versionId);
+    }
+}
+const installHandler = new InstallHandler();
+
+class ExtensionGatewayHandler {
+    funcMapper(func, internal) {
+        // Define externally accessible functions
+        const publicFunctions = ["encrypt", "decrypt", "secretLoaded", "getBlocker", "setBlocker", "clearCache", "openOptionsPage", "setVar", "getVar", "getConstant", "getLockTag"];
+        if (internal === false && !publicFunctions.includes(func)) {
             return null;
+        }
+
+        // All functions need to be async
+        switch (func) {
+            // Public
+            case "encrypt":
+                return encrypter.encrypt.bind(encrypter);
+            case "decrypt":
+                return encrypter.decrypt.bind(encrypter);
+            case "secretLoaded":
+                return encrypter.secretLoaded.bind(encrypter);
+            case "getBlocker":
+                return encrypter.getBlocker.bind(encrypter);
+            case "setBlocker":
+                return encrypter.setBlocker.bind(encrypter);
+            case "clearCache":
+                return cache.clear.bind(cache);
+            case "openOptionsPage":
+                return installHandler.openOptionsPage.bind(installHandler);
+            case "setVar":
+                return storage.setVar.bind(storage);
+            case "getVar":
+                return storage.getVar.bind(storage);
+            case "getConstant":
+                return c.get.bind(c);
+            case "getLockTag":
+                return utils.getLockTag.bind(utils);
+
+            // Private
+            case "setStorage":
+                return storage.set.bind(storage);
+            case "getStorage":
+                return storage.get.bind(storage);
+            case "loadSecret":
+                return encrypter.loadSecret.bind(encrypter);
+            case "isValidSecret":
+                return encrypter.isValidSecret.bind(encrypter);
+            case "broadcastReload":
+                return utils.broadcastReload.bind(utils);
+
+            default:
+                return null;
+        }
+    }
+
+    async funcCallHandler(func, params, internal) {
+        await staller.waitUntilReady();
+        let callableFunc = this.funcMapper(func, internal);
+        if (callableFunc) {
+            return await callableFunc(...params);
+        }
+        return {result: "error", message: "Function not found"};
+    }
+
+    initialFuncCallHandler(request, sender, sendResponse, internal = false) {
+        if (!request.func || !request.params) {
+            sendResponse({result: "error", message: "Invalid request"});
+            return;
+        }
+
+        this.funcCallHandler(request.func, request.params, internal).then(sendResponse);
+        return true;
     }
 }
+const gateway = new ExtensionGatewayHandler();
 
-async function funcCallHandler(func, params) {
-    let callableFunc = funcMapper(func);
-    if (callableFunc) {
-        return await callableFunc(...params);
+class Staller {
+    static items = [];
+    static ready = false;
+
+    static addItem(resolve) {
+        Staller.items.push(resolve);
     }
-    return "Function not found";
-}
 
-chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
-    let {func, params} = message;
-    funcCallHandler(func, params).then(sendResponse);
-    return true;
-});
+    waitUntilReady() {
+        return new Promise(resolve => {
+            if (Staller.ready) {
+                return resolve();
+            }
+            Staller.addItem(resolve);
+        });
+    }
+
+    ready() {
+        Staller.ready = true;
+        for (let resolve of Staller.items) {
+            resolve();
+        }
+        Staller.items = [];
+    }
+}
+const staller = new Staller();
+
+chrome.runtime.onInstalled.addListener(({ reason }) => installHandler.onListenerAction(reason));
+chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => gateway.initialFuncCallHandler(request, sender, sendResponse));
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => gateway.initialFuncCallHandler(request, sender, sendResponse, true));
+
+(async () => {
+    // Init
+    await encrypter.loadSecret();
+
+    staller.ready();
+})();

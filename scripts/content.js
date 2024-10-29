@@ -1,9 +1,7 @@
-const EVENT_TO_SCRIPT = "WfeEventToScript";
-const EVENT_TO_CONTENT = "WfeEventToContent";
-
 // Inject variables
-injectVar("eventToScript", EVENT_TO_SCRIPT);
-injectVar("eventToContent", EVENT_TO_CONTENT);
+injectVar("extensionId", chrome.runtime.id);
+
+// TODO: let lock.js fetch variables from the background via gateway, instead of inkecting via span
 injectVar("logoUrl", chrome.runtime.getURL('/src/logo_128.png'));
 injectVar("logoWUrl", chrome.runtime.getURL('/src/logo_w_128.png'));
 injectVar("keyUrl", chrome.runtime.getURL('/src/key_128.png'));
@@ -14,6 +12,7 @@ injectVar("htmlPopupContainer", chrome.runtime.getURL('/layouts/popup_container.
 injectVar("htmlPopupClose", chrome.runtime.getURL('/layouts/popup_close.html'));
 injectVar("htmlPopupWelcome1", chrome.runtime.getURL('/layouts/popup_welcome_1.html'));
 injectVar("htmlPopupWelcome2", chrome.runtime.getURL('/layouts/popup_welcome_2.html'));
+injectVar("htmlPopupWelcome2loader", chrome.runtime.getURL('/layouts/popup_welcome_2_loader.html'));
 injectVar("htmlPopupWelcome3", chrome.runtime.getURL('/layouts/popup_welcome_3.html'));
 injectVar("htmlPopupWelcome4", chrome.runtime.getURL('/layouts/popup_welcome_4.html'));
 injectVar("cssWelcome", chrome.runtime.getURL('/styles/welcome.css'));
@@ -48,15 +47,3 @@ function injectVar(key, value) {
     variable.setAttribute('value', value);
     document.body.appendChild(variable);
 }
-
-window.addEventListener(EVENT_TO_CONTENT, function(message) {
-    let {id} = message.detail;
-
-    chrome.runtime.sendMessage(message.detail, function(response) {
-        let callParams = {
-            response: response,
-            id: id
-        }
-        window.dispatchEvent(new CustomEvent(EVENT_TO_SCRIPT, {detail: callParams}));
-    });
-}, false);
