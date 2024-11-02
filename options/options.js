@@ -407,6 +407,7 @@ class Staller {
 }
 const staller = new Staller();
 
+// TODO: change onload w/ on focus
 window.onload = async () => {
     await staller.waitUntilReady();
     [action, actionArg] = await gateway.getStorage("optionsAction", [null, null]);

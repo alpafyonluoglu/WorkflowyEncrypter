@@ -27,7 +27,6 @@ class BaseUtil {
   }
 
   getInternalVar(key) {
-    // TODO: replace w/ Constants, except the extension ID
     return document.getElementById("wfe-internal-" + key).getAttribute('value');
   }
 
@@ -152,6 +151,10 @@ class FocusTracker {
   action = null;
 
   async onChange() {
+    if (this.action !== null) {
+      return this.action();
+    }
+
     const reloadBroadcast = await gateway.getVar("reloadBroadcast", null) ?? {};
     if ((reloadBroadcast.time !== undefined && reloadBroadcast.time > broadcastCheckTime) && !pendingReload) {
       let popupTitle = "Quick Refresh Needed"; 
@@ -195,10 +198,6 @@ class FocusTracker {
       location.reload();
     } else {
       broadcastCheckTime = new Date().getTime();
-    }
-
-    if (this.action !== null) {
-      this.action();
     }
   }
 
@@ -848,6 +847,9 @@ class PopupHelper {
               let text = document.getElementById("_popup-text");
               let buttonAction = button.getAttribute("data-action") ?? "registerKey";
               let checkSecretAction = async () => {
+                // Ignore broadcasted actions
+                broadcastCheckTime = new Date().getTime();
+
                 if (await gateway.secretLoaded(true)) {
                   focusTracker.clearAction();
 
@@ -954,6 +956,9 @@ class PopupHelper {
               let buttonAction = button.getAttribute("data-action") ?? "moveKey";
               
               let checkSecretAction = async () => {
+                // Ignore broadcasted actions
+                broadcastCheckTime = new Date().getTime();
+
                 if (await gateway.getVar("keyMoved", false)) {
                   focusTracker.clearAction();
 
@@ -970,6 +975,7 @@ class PopupHelper {
               switch (buttonAction) {
                 case "moveKey":
                   let secret = window.localStorage.getItem("lockSecret");
+                  await gateway.setVar("keyMoved", false);
                   await gateway.openOptionsPage(c.ACTIONS.MOVE_KEY, secret);
                   focusTracker.setAction(checkSecretAction);
 
@@ -1070,6 +1076,7 @@ class Encrypter {
     // Secret is not loaded
     bypassLock = true;
     let reloadPage = true;
+    staller.ready();
 
     let blocker = await gateway.getBlocker();
     switch (blocker) {
@@ -1778,9 +1785,8 @@ window.fetch = async (...args) => {
   u.updateTheme();
   await gateway.setVar("theme", theme);
   toast.init();
-  await encrypter.checkSecret();
-
   window.onfocus = focusTracker.onChange.bind(focusTracker);
 
+  await encrypter.checkSecret();
   staller.ready();
 })();
