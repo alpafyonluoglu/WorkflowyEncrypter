@@ -1,28 +1,5 @@
-// Inject variables
+// Inject
 injectVar("extensionId", chrome.runtime.id);
-
-// TODO: let lock.js fetch variables from the background via gateway, instead of inkecting via span
-injectVar("logoUrl", chrome.runtime.getURL('/src/logo_128.png'));
-injectVar("logoWUrl", chrome.runtime.getURL('/src/logo_w_128.png'));
-injectVar("keyUrl", chrome.runtime.getURL('/src/key_128.png'));
-injectVar("ss1Url", chrome.runtime.getURL('/src/ss1.png'));
-injectVar("ss1DarkUrl", chrome.runtime.getURL('/src/ss1_dark.png'));
-injectVar("htmlToastContainer", chrome.runtime.getURL('/layouts/toast_container.html'));
-injectVar("htmlPopupContainer", chrome.runtime.getURL('/layouts/popup_container.html'));
-injectVar("htmlPopupClose", chrome.runtime.getURL('/layouts/popup_close.html'));
-injectVar("htmlPopupWelcome1", chrome.runtime.getURL('/layouts/popup_welcome_1.html'));
-injectVar("htmlPopupWelcome2", chrome.runtime.getURL('/layouts/popup_welcome_2.html'));
-injectVar("htmlPopupWelcome2loader", chrome.runtime.getURL('/layouts/popup_welcome_2_loader.html'));
-injectVar("htmlPopupWelcome3", chrome.runtime.getURL('/layouts/popup_welcome_3.html'));
-injectVar("htmlPopupWelcome4", chrome.runtime.getURL('/layouts/popup_welcome_4.html'));
-injectVar("cssWelcome", chrome.runtime.getURL('/styles/welcome.css'));
-injectVar("cssWelcomeDark", chrome.runtime.getURL('/styles/welcome_dark.css'));
-injectVar("cssPopup", chrome.runtime.getURL('/styles/popup.css'));
-injectVar("cssPopupDark", chrome.runtime.getURL('/styles/popup_dark.css'));
-injectVar("cssPopupType0", chrome.runtime.getURL('/styles/popup_type0.css'));
-injectVar("cssPopupType0Dark", chrome.runtime.getURL('/styles/popup_type0_dark.css'));
-injectVar("cssPopupType1", chrome.runtime.getURL('/styles/popup_type1.css'));
-injectVar("cssPopupType1Dark", chrome.runtime.getURL('/styles/popup_type1_dark.css'));
 injectScript(chrome.runtime.getURL('/scripts/lock.js'));
 injectStyle(chrome.runtime.getURL('/styles/toast.css'));
 

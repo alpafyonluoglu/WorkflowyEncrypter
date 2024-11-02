@@ -188,7 +188,7 @@ class FocusTracker {
             html: [{
               position: "afterbegin",
               content: await components.getWelcomeHtml(2, {
-                key_url: u.getInternalVar("logoUrl")
+                key_url: await gateway.getResUrl('/src/logo_128.png')
               })
             }]
           }
@@ -318,27 +318,27 @@ const nodes = new NodeTracker();
 class ComponentLoader {
   // For a native look, HTML and CSS are taken from the Workflowy's site
   async getPopupContainerHTML() {
-    let path = u.getInternalVar("htmlPopupContainer");
+    let path = await gateway.getResUrl('/layouts/popup_container.html');
     return await this.readFile(path);
   }
 
   async getToastContainerHTML() {
-    let path = u.getInternalVar("htmlToastContainer");
+    let path = await gateway.getResUrl('/layouts/toast_container.html');
     return await this.readFile(path);
   }
 
   async getPopupCloseHTML() {
-    let path = u.getInternalVar("htmlPopupClose");
+    let path = await gateway.getResUrl('/layouts/popup_close.html');
     return await this.readFile(path);
   }
 
   async getWelcomeCss() {
-    let path = u.getInternalVar("cssWelcome");
+    let path = await gateway.getResUrl('/styles/welcome.css');
     let css = await this.readFile(path);
 
     switch (theme) {
       case c.THEMES.DARK:
-        let path = u.getInternalVar("cssWelcomeDark");
+        let path = await gateway.getResUrl('/styles/welcome_dark.css');
         css += '\n' + await this.readFile(path);
         break;
       case c.THEMES.LIGHT:
@@ -350,18 +350,18 @@ class ComponentLoader {
   }
 
   async getPopupCss(type = c.POPUP_TYPES.DEFAULT) {
-    let path = u.getInternalVar("cssPopup");
+    let path = await gateway.getResUrl('/styles/popup.css');
     let css = await this.readFile(path);
 
-    path = u.getInternalVar("cssPopupType" + type);
+    path = await gateway.getResUrl('/styles/popup_type' + type + '.css');
     css += '\n' + await this.readFile(path);
 
     switch (theme) {
       case c.THEMES.DARK:
-        let path = u.getInternalVar("cssPopupDark");
+        let path = await gateway.getResUrl('/styles/popup_dark.css');
         css += '\n' + await this.readFile(path);
 
-        path = u.getInternalVar("cssPopupType" + type + "Dark");
+        path = await gateway.getResUrl('/styles/popup_type' + type + '_dark.css');
         css += '\n' + await this.readFile(path);
         break;
       case c.THEMES.LIGHT:
@@ -373,7 +373,7 @@ class ComponentLoader {
   }
 
   async getWelcomeHtml(id, properties = {}) {
-    let path = u.getInternalVar("htmlPopupWelcome" + id);
+    let path = await gateway.getResUrl('/layouts/popup_welcome_' + id + '.html');
     return await this.parseProperties(await this.readFile(path), properties);
   }
 
@@ -802,8 +802,8 @@ class PopupHelper {
           html: [{
             position: "afterbegin",
             content: await components.getWelcomeHtml(1, {
-              logo_url: u.getInternalVar("logoUrl"),
-              logo_w_url: u.getInternalVar("logoWUrl")
+              logo_url: await gateway.getResUrl('/src/logo_128.png'),
+              logo_w_url: await gateway.getResUrl('/src/logo_w_128.png')
             })
           }],
           script: () => {
@@ -890,12 +890,12 @@ class PopupHelper {
           html: [{
             position: "afterbegin",
             content: await components.getWelcomeHtml(2, {
-              key_url: u.getInternalVar("keyUrl")
+              key_url: await gateway.getResUrl('/src/key_128.png')
             })
           },
           {
             position: "beforebuttons",
-            content: await components.getWelcomeHtml("2loader")
+            content: await components.getWelcomeHtml("2_loader")
           }]
         },
         {
@@ -904,7 +904,7 @@ class PopupHelper {
           html: [{
             position: "afterbegin",
             content: await components.getWelcomeHtml(3, {
-              ss1_url: theme === c.THEMES.LIGHT ? u.getInternalVar("ss1Url") : u.getInternalVar("ss1DarkUrl")
+              ss1_url: theme === c.THEMES.LIGHT ? (await gateway.getResUrl('/src/ss1.png')) : (await gateway.getResUrl('/src/ss1_dark.png'))
             })
           }]
         },
@@ -914,8 +914,8 @@ class PopupHelper {
           html: [{
             position: "afterbegin",
             content: await components.getWelcomeHtml(4, {
-              logo_url: u.getInternalVar("logoUrl"),
-              logo_w_url: u.getInternalVar("logoWUrl")
+              logo_url: await gateway.getResUrl('/src/logo_128.png'),
+              logo_w_url: await gateway.getResUrl('/src/logo_w_128.png')
             })
           }],
           script: () => {
@@ -1003,12 +1003,12 @@ class PopupHelper {
           html: [{
             position: "afterbegin",
             content: await components.getWelcomeHtml(2, {
-              key_url: u.getInternalVar("logoUrl")
+              key_url: await gateway.getResUrl('/src/logo_128.png')
             })
           },
           {
             position: "beforebuttons",
-            content: await components.getWelcomeHtml("2loader")
+            content: await components.getWelcomeHtml("2_loader")
           }]
         }
       ]

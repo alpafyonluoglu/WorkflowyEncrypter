@@ -108,6 +108,10 @@ class Utils {
             time: new Date().getTime()
         });
     }
+
+    async getResUrl(path) {
+        return chrome.runtime.getURL(path);
+    }
 }
 const utils = new Utils();
 
@@ -316,7 +320,7 @@ const installHandler = new InstallHandler();
 class ExtensionGatewayHandler {
     funcMapper(func, internal) {
         // Define externally accessible functions
-        const publicFunctions = ["encrypt", "decrypt", "secretLoaded", "getBlocker", "setBlocker", "clearCache", "openOptionsPage", "setVar", "getVar", "getConstant", "getLockTag"];
+        const publicFunctions = ["encrypt", "decrypt", "secretLoaded", "getBlocker", "setBlocker", "clearCache", "openOptionsPage", "setVar", "getVar", "getConstant", "getLockTag", "getResUrl"];
         if (internal === false && !publicFunctions.includes(func)) {
             return null;
         }
@@ -346,6 +350,8 @@ class ExtensionGatewayHandler {
                 return c.get.bind(c);
             case "getLockTag":
                 return utils.getLockTag.bind(utils);
+            case "getResUrl":
+                return utils.getResUrl.bind(utils);
 
             // Private
             case "setStorage":
