@@ -26,6 +26,19 @@ class BaseUtils {
     bold(text) {
         return "<b>" + text + "</b>";
     }
+
+    // IMPROVE: common function
+    randomStr(length) { // [https://stackoverflow.com/a/1349426]
+        let result = '';
+        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        const charactersLength = characters.length;
+        let counter = 0;
+        while (counter < length) {
+          result += characters.charAt(Math.floor(Math.random() * charactersLength));
+          counter += 1;
+        }
+        return result;
+    }
 }
 const u = new BaseUtils();
 
@@ -191,9 +204,12 @@ class PageManager {
     
         contentParent.appendChild(this.createTitle(path[path.length - 1]));
         if (showBanner) {
-            let banner = await this.createBanner();
+            let [banner, animate] = await this.createBanner();
             if (banner) {
                 contentParent.appendChild(banner);
+                if (animate) {
+                    animator.bannerAnim();
+                }
             }
         }
 
@@ -219,33 +235,53 @@ class PageManager {
     }
 
     async createBanner() {
-        let bannerContent = await content.getBannerContent();
-        if (bannerContent === null) {
-            // TODO: return default banner (#private)
-            return null;
-        }
-
         const banner = document.createElement("div");
         banner.classList.add("banner");
+        let animate = false;
 
-        const title = document.createElement("p");
-        title.classList.add("banner-title");
-        title.textContent = bannerContent.title;
-        banner.appendChild(title);
+        let bannerContent = await content.getBannerContent();
+        if (bannerContent === null) {
+            animate = true;
+            banner.classList.add("animated-banner");
 
-        const text = document.createElement("p");
-        text.classList.add("banner-text");
-        text.innerHTML = bannerContent.text;
-        banner.appendChild(text);
+            const animatedBackground = document.createElement("p");
+            animatedBackground.classList.add("banner-animated-background");
+            animatedBackground.id = "bannerAnimatedBackground";
+            banner.appendChild(animatedBackground);
 
-        const img = document.createElement("img");
-        img.classList.add("banner-image");
-        img.src = "/src/logo_w_128.png";
-        banner.appendChild(img);
+            const foreground = document.createElement("div");
+            foreground.classList.add("banner-foreground");
+            foreground.textContent = "#private";
+            banner.appendChild(foreground);
 
-        // IMPROVE: Add button to banner
+            const color = document.createElement("div");
+            color.classList.add("banner-color");
+            banner.appendChild(color);
 
-        return banner;
+            const subtext = document.createElement("p");
+            subtext.classList.add("banner-anim-subtext");
+            subtext.innerHTML = "with " + u.bold("Workflowy Encrypter");
+            banner.appendChild(subtext);
+        } else {
+            const title = document.createElement("p");
+            title.classList.add("banner-title");
+            title.textContent = bannerContent.title;
+            banner.appendChild(title);
+
+            const text = document.createElement("p");
+            text.classList.add("banner-text");
+            text.innerHTML = bannerContent.text;
+            banner.appendChild(text);
+
+            const img = document.createElement("img");
+            img.classList.add("banner-image");
+            img.src = "/src/logo_w_128.png";
+            banner.appendChild(img);
+
+            // IMPROVE: Add button to banner
+        }
+
+        return [banner, animate];
     }
 
     createButtonNode(buttons) {
@@ -428,6 +464,56 @@ window.onload = async () => {
     }
     await gateway.setStorage("optionsAction", [null, null]);
 }
+
+class Animator {
+    async bannerAnim() {
+        const element = document.getElementById("bannerAnimatedBackground");
+        const height = element.clientHeight;
+        const width = element.clientWidth;
+
+        let rows = Math.ceil(height / 12);
+        let cols = Math.floor(width / 12 * (5/3));
+        let n = rows * cols;
+
+        for (let i = 0; i < n; i++) {
+            // Create span element
+            let span = document.createElement("span");
+            span.textContent = u.randomStr(1);
+            span.id = "bannerAnimatedSpan" + i;
+            element.appendChild(span);
+        }
+
+        while (true) {
+            for (let i = 0; i < cols + rows; i++) {
+                // Uncomment for animation
+                for (let j = 0; j < rows; j++) {
+                    if (i - j < 0 || i - j > cols - 1) {
+                        continue;
+                    }
+                    let id = (i - j) + j * cols;
+                    let element = document.getElementById("bannerAnimatedSpan" + id);
+                    // element.classList.remove("transition");
+                    // element.style.opacity = 0;
+                    element.textContent = u.randomStr(1);
+                }
+                // await u.sleep(0);
+                // for (let j = 0; j < rows; j++) {
+                //     if (i - j < 0 || i - j > cols - 1) {
+                //         continue;
+                //     }
+                //     let id = (i - j) + j * cols;
+                //     let element = document.getElementById("bannerAnimatedSpan" + id);
+                //     element.classList.add("transition");
+                //     element.style.opacity = 1;
+                // }
+                await u.sleep(20);
+            }
+
+            await u.sleep(3200);
+        }
+    }    
+}
+const animator = new Animator();
 
 (async () => {
     // Init

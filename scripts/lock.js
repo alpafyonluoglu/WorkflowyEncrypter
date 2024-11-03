@@ -1067,8 +1067,6 @@ class Encrypter {
   }
 
   async checkSecret() {
-    // TODO: ensure extension is responsive and accessible; throw error otherwise
-    // TODO: Check every time tab gets active (?)
     if (await gateway.secretLoaded()) {
       return true;
     }
