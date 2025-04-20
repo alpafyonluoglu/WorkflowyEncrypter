@@ -21,7 +21,7 @@ After installing the extension via [Chrome Web Store](https://chrome.google.com/
 
 And that's it! Encrypted nodes will be readable only from web browsers that have Workflowy Encrypter installed. Try to use a different device or disable the extension temporarily to see the magic!
 
-[![Available in the Chrome Web Store](https://storage.googleapis.com/web-dev-uploads/image/WlD8wC6g8khYWPJUsQceQkhXSlv1/UV4C4ybeBTsZt43U4xis.png)](https://chrome.google.com/webstore/detail/workflowy-encrypter/fohbpcookddpmmhpmgoogodlanhikeib)
+[![Available in the Chrome Web Store](https://developer.chrome.com/static/docs/webstore/branding/image/UV4C4ybeBTsZt43U4xis.png)](https://chrome.google.com/webstore/detail/workflowy-encrypter/fohbpcookddpmmhpmgoogodlanhikeib)
 
 ## Screenshots
 Here are some screenshots to better understand the extension's functionality and interfaces.
@@ -61,9 +61,8 @@ As this is a third-party extension, full compatibility of the extension with the
 the page by pressing Ctrl+Shift+R on Windows and Command+Shift+R on Mac. If the issue persists, do not hesitate to contact me, open an issue here on GitHub, or better yet, open a pull request
 if you are a developer. Contributions are much appreciated!
 
-## Known Issues and Upcoming Features
-- [Feature] Tracking encrypted nodes and warning if #private tag of any of them has been removed via a remote session.
-- [Feature] File encryption.
+## Roadmap
+Known issues and feature ideas are tracked in the [Issues](https://github.com/alpafyonluoglu/WorkflowyEncrypter/issues) section. These items serve as a backlog to help guide future development efforts.
 
 ## Contributing
 All collaborators are welcome to contribute to the project in any constructive way as long as they comply with the code of conduct.
