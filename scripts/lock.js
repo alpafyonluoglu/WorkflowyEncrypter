@@ -1,12 +1,11 @@
-const DOMAIN = "https://workflowy.com";
-const LOCK_TAG = "#private";
-const PRE_ENC_CHAR = "_";
 var shared = []; // Share IDs
-
 var trackedChanges = [];
 var cacheClearPerformed = false;
 var quarantine = false;
+var bypassLock = false;
 var theme = null;
+var broadcastCheckTime = new Date().getTime();
+var pendingReload = false;
 
 var crosscheckUserId = "";
 var clientId = "";
@@ -16,60 +15,11 @@ var mostRecentOperationTransactionId = "";
 
 const {fetch: origFetch} = window;
 
-const DEFAULT_SHARE_ID = 'DEFAULT';
-
-const POPUP_TYPES = {
-  DEFAULT: 0,
-  MINI: 1
-};
-
-const TOAST_STATES = {
-  HIDDEN: 0,
-  TRANSITIONING: 1,
-  SHOWN: 2
-};
-
-const THEMES = {
-  LIGHT: "light",
-  DARK: "dark"
-};
-
-const PROPERTIES = {
-  NAME: "name",
-  DESCRIPTION: "description",
-  LOCKED: "locked",
-  PARENT: "parent",
-  SHARE_ID: "shareId",
-  LOCAL_ID: "localId"
-};
-
-const SENSITIVE_PROPERTIES = [
-  PROPERTIES.NAME,
-  PROPERTIES.DESCRIPTION
-];
-
-const FLAGS = {
-  FORCE_DECRYPT: 0,
-  SUPPRESS_WARNINGS: 1,
-  NO_FETCH: 2,
-  TRACK_ENCRYPTION_CHANGES: 3,
-  IGNORE_NULL_PARENT: 4
-};
-
-const OUTCOMES = {
-  IGNORE: -1,
-  CANCEL: 0,
-  PREV: 1,
-  NEXT: 2,
-  COMPLETE: 3,
-  CUSTOM: 4
-}
-
 class BaseUtil {
   updateTheme() {
     var body = document.getElementsByTagName("body")[0];
     var bodyBgColor = window.getComputedStyle(body, null).getPropertyValue("background-color");
-    theme = bodyBgColor === "rgb(42, 49, 53)" ? THEMES.DARK : THEMES.LIGHT;
+    theme = bodyBgColor === "rgb(42, 49, 53)" ? c.THEMES.DARK : c.THEMES.LIGHT;
   }
 
   sleep(ms) {
@@ -81,9 +31,9 @@ class BaseUtil {
   }
 
   endpointMatches(path, method, url, params) {
-    return url.includes(DOMAIN + path) && method === params.method;
+    return url.includes(c.DOMAIN + path) && method === params.method;
   }
-  
+
   isString(val) {
     return typeof val === 'string' || val instanceof String;
   }
@@ -101,7 +51,165 @@ class BaseUtil {
   }
 }
 const u = new BaseUtil();
-u.updateTheme();
+
+class ExtensionGateway {
+  constructor() {
+    return new Proxy({}, {
+      get(target, key) {
+        return (...args) => {
+          return ExtensionGateway.call(key, ...args);
+        };
+      }
+    });
+  }
+
+  static call(func, ...params) {
+    return new Promise(resolve => {
+      chrome.runtime.sendMessage(c.EXTENSION_ID,
+        {
+          func: func,
+          params: params
+        },
+        (response) => {
+          resolve(response);
+        }
+      );
+    });
+  }
+}
+const gateway = new ExtensionGateway();
+
+class Constants {
+  EXTENSION_ID = undefined;
+  LOCK_TAG = undefined;
+  DOMAIN = "https://workflowy.com";
+  DEFAULT_SHARE_ID = 'DEFAULT';
+  POPUP_TYPES = {
+    DEFAULT: 0,
+    MINI: 1
+  };
+  TOAST_STATES = {
+    HIDDEN: 0,
+    TRANSITIONING: 1,
+    SHOWN: 2
+  };
+  PROPERTIES = {
+    NAME: "name",
+    DESCRIPTION: "description",
+    LOCKED: "locked",
+    PARENT: "parent",
+    SHARE_ID: "shareId",
+    LOCAL_ID: "localId"
+  };
+  SENSITIVE_PROPERTIES = [
+    this.PROPERTIES.NAME,
+    this.PROPERTIES.DESCRIPTION
+  ];
+  FLAGS = {
+    FORCE_DECRYPT: 0,
+    SUPPRESS_WARNINGS: 1,
+    NO_FETCH: 2,
+    TRACK_ENCRYPTION_CHANGES: 3,
+    IGNORE_NULL_PARENT: 4
+  };
+  OUTCOMES = {
+    IGNORE: -1,
+    CANCEL: 0,
+    PREV: 1,
+    NEXT: 2,
+    COMPLETE: 3,
+    CUSTOM: 4
+  };
+
+  constructor() {
+    return new Proxy(this, {
+      set(target, key, value) {
+        if (key in target && target[key] !== undefined) {
+          return false;
+        }
+        return (target[key] = value);
+      },
+      deleteProperty(target, key) {
+        return false;
+      }
+    });
+  }
+
+  async init() {
+    this.EXTENSION_ID = u.getInternalVar("extensionId");
+    this.LOCK_TAG = await gateway.getLockTag();
+
+    const constantsToFetch = ["THEMES", "PRE_ENC_CHAR", "RELOAD_REASONS", "ACTIONS"];
+    for (let key of constantsToFetch) {
+      this[key] = await gateway.getConstant(key);
+    }
+  }
+}
+const c = new Constants();
+
+class FocusTracker {
+  action = null;
+
+  async onChange() {
+    if (this.action !== null) {
+      return this.action();
+    }
+
+    const reloadBroadcast = await gateway.getVar("reloadBroadcast", null) ?? {};
+    if ((reloadBroadcast.time !== undefined && reloadBroadcast.time > broadcastCheckTime) && !pendingReload) {
+      let popupTitle = "Quick Refresh Needed"; 
+      let popupText = "Some behind-the-scenes changes need a quick refresh to take effect. Reload the page to stay up to date.";
+      switch (reloadBroadcast.reason) {
+        case c.RELOAD_REASONS.UPDATE:
+          popupTitle = "Update Ready";
+          popupText = "We've updated Workflowy Encrypter with new features and improvements! Reload this page to enjoy the latest version.";
+          break;
+        case c.RELOAD_REASONS.KEY_CHANGE:
+          popupTitle = "Key Updated";
+          popupText = "Your key has been successfully updated. Reload this page to apply your changes.";
+          break;
+        case c.RELOAD_REASONS.TAG_CHANGE:
+          popupTitle = "Tag Updated";
+          popupText = "The encryption tag has been successfully updated. Reload this page to apply your changes.";
+          break;
+      }
+
+      pendingReload = true;
+      await popup.create(null, null, [], false, {
+        style: await components.getWelcomeCss(),
+        pages: [
+          {
+            title: popupTitle,
+            text: popupText,
+            buttons: [{
+              outcome: c.OUTCOMES.COMPLETE,
+              text: "Reload"
+            }],
+            html: [{
+              position: "afterbegin",
+              content: await components.getWelcomeHtml(2, {
+                key_url: await gateway.getResUrl('/src/logo_128.png')
+              })
+            }]
+          }
+        ]
+      });
+      window.onbeforeunload = null;
+      location.reload();
+    } else {
+      broadcastCheckTime = new Date().getTime();
+    }
+  }
+
+  setAction(action) {
+    this.action = action;
+  }
+
+  clearAction() {
+    this.action = null;
+  }
+}
+const focusTracker = new FocusTracker();
 
 class NodeTracker {
   NODES = {};
@@ -122,7 +230,7 @@ class NodeTracker {
     }
 
     let node = this.NODES[id] ?? {};
-    let isSharedRoot = node[PROPERTIES.SHARE_ID] !== undefined;
+    let isSharedRoot = node[c.PROPERTIES.SHARE_ID] !== undefined;
 
     for (let property in properties) {
       if (properties[property] === undefined && node[property] !== undefined) {
@@ -131,11 +239,11 @@ class NodeTracker {
     }
 
     if (isSharedRoot && !enforce) {
-      delete properties[PROPERTIES.PARENT];
+      delete properties[c.PROPERTIES.PARENT];
     }
 
     let updatedNode = {...node, ...properties};
-    updatedNode[PROPERTIES.LOCKED] = (updatedNode[PROPERTIES.NAME] ?? "").includes(LOCK_TAG);
+    updatedNode[c.PROPERTIES.LOCKED] = (updatedNode[c.PROPERTIES.NAME] ?? "").includes(c.LOCK_TAG);
 
     this.NODES[id] = updatedNode;
     return true;
@@ -163,17 +271,17 @@ class NodeTracker {
     } else if (node[property] !== undefined && !ignored.includes(node[property])) {
       return node[property];
     } else if (recursiveCheck) {
-      return this.get(node[PROPERTIES.PARENT], property, recursiveCheck, ignored);
+      return this.get(node[c.PROPERTIES.PARENT], property, recursiveCheck, ignored);
     }
     return undefined;
   }
 
   getShareId(id) {
-    return this.get(id, PROPERTIES.SHARE_ID, true);
+    return this.get(id, c.PROPERTIES.SHARE_ID, true);
   }
   
   getParent(id) {
-    return this.get(id, PROPERTIES.PARENT, false);
+    return this.get(id, c.PROPERTIES.PARENT, false);
   }
 
   /**
@@ -181,15 +289,15 @@ class NodeTracker {
    * Setting direct to false will check the property of the node's parents
    */
   isLocked(id, direct = false) {
-    return this.get(id, PROPERTIES.LOCKED, !direct, [false]) ?? false;
+    return this.get(id, c.PROPERTIES.LOCKED, !direct, [false]) ?? false;
   }
 
   hasChild(id) {
-    return this.find(PROPERTIES.PARENT, id, true).length > 0;
+    return this.find(c.PROPERTIES.PARENT, id, true).length > 0;
   }
 
   getChildren(id) {
-    return this.find(PROPERTIES.PARENT, id);
+    return this.find(c.PROPERTIES.PARENT, id);
   }
 
   find(property, value, single = false) {
@@ -210,30 +318,30 @@ const nodes = new NodeTracker();
 class ComponentLoader {
   // For a native look, HTML and CSS are taken from the Workflowy's site
   async getPopupContainerHTML() {
-    let path = u.getInternalVar("htmlPopupContainer");
+    let path = await gateway.getResUrl('/layouts/popup_container.html');
     return await this.readFile(path);
   }
 
   async getToastContainerHTML() {
-    let path = u.getInternalVar("htmlToastContainer");
+    let path = await gateway.getResUrl('/layouts/toast_container.html');
     return await this.readFile(path);
   }
 
   async getPopupCloseHTML() {
-    let path = u.getInternalVar("htmlPopupClose");
+    let path = await gateway.getResUrl('/layouts/popup_close.html');
     return await this.readFile(path);
   }
 
   async getWelcomeCss() {
-    let path = u.getInternalVar("cssWelcome");
+    let path = await gateway.getResUrl('/styles/welcome.css');
     let css = await this.readFile(path);
 
     switch (theme) {
-      case THEMES.DARK:
-        let path = u.getInternalVar("cssWelcomeDark");
+      case c.THEMES.DARK:
+        let path = await gateway.getResUrl('/styles/welcome_dark.css');
         css += '\n' + await this.readFile(path);
         break;
-      case THEMES.LIGHT:
+      case c.THEMES.LIGHT:
       default:
         break;
     }
@@ -241,22 +349,22 @@ class ComponentLoader {
     return css;
   }
 
-  async getPopupCss(type = POPUP_TYPES.DEFAULT) {
-    let path = u.getInternalVar("cssPopup");
+  async getPopupCss(type = c.POPUP_TYPES.DEFAULT) {
+    let path = await gateway.getResUrl('/styles/popup.css');
     let css = await this.readFile(path);
 
-    path = u.getInternalVar("cssPopupType" + type);
+    path = await gateway.getResUrl('/styles/popup_type' + type + '.css');
     css += '\n' + await this.readFile(path);
 
     switch (theme) {
-      case THEMES.DARK:
-        let path = u.getInternalVar("cssPopupDark");
+      case c.THEMES.DARK:
+        let path = await gateway.getResUrl('/styles/popup_dark.css');
         css += '\n' + await this.readFile(path);
 
-        path = u.getInternalVar("cssPopupType" + type + "Dark");
+        path = await gateway.getResUrl('/styles/popup_type' + type + '_dark.css');
         css += '\n' + await this.readFile(path);
         break;
-      case THEMES.LIGHT:
+      case c.THEMES.LIGHT:
       default:
         break;
     }
@@ -265,7 +373,7 @@ class ComponentLoader {
   }
 
   async getWelcomeHtml(id, properties = {}) {
-    let path = u.getInternalVar("htmlPopupWelcome" + id);
+    let path = await gateway.getResUrl('/layouts/popup_welcome_' + id + '.html');
     return await this.parseProperties(await this.readFile(path), properties);
   }
 
@@ -289,7 +397,7 @@ const components = new ComponentLoader();
  */
 class Toast {
   static PROCESSES = {}
-  static state = TOAST_STATES.HIDDEN;
+  static state = c.TOAST_STATES.HIDDEN;
   static timeoutShow = null;
   static timeoutHide = null;
   delay = 100;
@@ -304,8 +412,8 @@ class Toast {
       text: text
     };
 
-    if (Toast.state === TOAST_STATES.TRANSITIONING) {
-      while (Toast.state === TOAST_STATES.TRANSITIONING) {
+    if (Toast.state === c.TOAST_STATES.TRANSITIONING) {
+      while (Toast.state === c.TOAST_STATES.TRANSITIONING) {
         await u.sleep(50);
       }
     }
@@ -315,9 +423,9 @@ class Toast {
       Toast.timeoutHide = null;
     }
 
-    if (Toast.state === TOAST_STATES.HIDDEN && Toast.timeoutShow === null) {
+    if (Toast.state === c.TOAST_STATES.HIDDEN && Toast.timeoutShow === null) {
       Toast.timeoutShow = setTimeout(async function () {
-        Toast.state = TOAST_STATES.TRANSITIONING;
+        Toast.state = c.TOAST_STATES.TRANSITIONING;
 
         let process = Object.values(Toast.PROCESSES)[0];
         let title = process.title;
@@ -335,7 +443,7 @@ class Toast {
         await u.sleep(300);
 
         Toast.timeoutShow = null;
-        Toast.state = TOAST_STATES.SHOWN;
+        Toast.state = c.TOAST_STATES.SHOWN;
       }, this.delay);
     }
   }
@@ -351,8 +459,8 @@ class Toast {
       return;
     }
 
-    if (Toast.state === TOAST_STATES.TRANSITIONING) {
-      while (Toast.state === TOAST_STATES.TRANSITIONING) {
+    if (Toast.state === c.TOAST_STATES.TRANSITIONING) {
+      while (Toast.state === c.TOAST_STATES.TRANSITIONING) {
         await u.sleep(50);
       }
     }
@@ -362,9 +470,9 @@ class Toast {
       Toast.timeoutShow = null;
     }
 
-    if (Toast.state === TOAST_STATES.SHOWN && Toast.timeoutHide === null) {
+    if (Toast.state === c.TOAST_STATES.SHOWN && Toast.timeoutHide === null) {
       Toast.timeoutHide = setTimeout(async function () {
-        Toast.state = TOAST_STATES.TRANSITIONING;
+        Toast.state = c.TOAST_STATES.TRANSITIONING;
 
         let toastElement = document.getElementById("_toast2");
         let height = toastElement.offsetHeight;
@@ -374,13 +482,12 @@ class Toast {
         toastElement.style.transition = "all 0s";
 
         Toast.timeoutHide = null;
-        Toast.state = TOAST_STATES.HIDDEN;
+        Toast.state = c.TOAST_STATES.HIDDEN;
       }, this.delay);
     }
   }
 }
 const toast = new Toast();
-toast.init();
 
 /**
  * Can be called by a single process at a time
@@ -446,14 +553,14 @@ class Popup {
       Popup.args.pageCount = args.pages.length;
       Popup.args.currentPage = 0;
       Popup.args.cancellable = cancellable;
-      Popup.args.type = Popup.args.type ?? POPUP_TYPES.DEFAULT;
+      Popup.args.type = Popup.args.type ?? c.POPUP_TYPES.DEFAULT;
       this.setPage(0);
       this.show();
 
       if (cancellable) {
         document.getElementById("_popup").addEventListener('click', function(evt) {
           if ( evt.target != this ) return false;
-          Popup.onClick(null, OUTCOMES.CANCEL);
+          Popup.onClick(null, c.OUTCOMES.CANCEL);
         });
       }
     });
@@ -478,13 +585,13 @@ class Popup {
       Popup.args.activeElement = document.activeElement;
       document.activeElement.blur();
     }
-    if (Popup.args.type === POPUP_TYPES.MINI) {
+    if (Popup.args.type === c.POPUP_TYPES.MINI) {
       document.addEventListener('keydown', Popup.onKeyPress);
     }
   }
 
-  async hide(outcome = OUTCOMES.CANCEL) {
-    if (Popup.args.type === POPUP_TYPES.MINI) {
+  async hide(outcome = c.OUTCOMES.CANCEL) {
+    if (Popup.args.type === c.POPUP_TYPES.MINI) {
       document.removeEventListener('keydown', Popup.onKeyPress);
     }
     if (Popup.args.activeElement) {
@@ -517,7 +624,7 @@ class Popup {
     const text = page["text"] ?? "";
     const input = page["input"] ?? null;
     const buttons = page["buttons"] ?? [];
-    const htmlList = page["html"] ?? [];
+    let htmlList = page["html"] ?? [];
     const script = page["script"] ?? (() => {});
 
     // Remove current page
@@ -536,6 +643,7 @@ class Popup {
 
     var textElement = document.createElement('p');
     textElement.classList.add("_popup-text");
+    textElement.id = "_popup-text";
     textElement.innerHTML = text;
     content.appendChild(textElement);
 
@@ -561,20 +669,30 @@ class Popup {
       divElement2.appendChild(inputElement);
     }
 
+    if (htmlList.length > 0) {
+      htmlList = htmlList.filter((htmlItem) => {
+        if (htmlItem.position === "beforebuttons") {
+          content.insertAdjacentHTML("beforeend", htmlItem.content);
+          return false;
+        }
+        return true;
+      });
+    }
+
     var buttonsElement = document.createElement('div');
     buttonsElement.classList.add("_popup-buttons");
     buttonsElement.id = "_popup-buttons";
     content.appendChild(buttonsElement);
     
     if (buttons.length === 0) {
-      if (type === POPUP_TYPES.DEFAULT) {
+      if (type === c.POPUP_TYPES.DEFAULT) {
         buttons.push({
-          outcome: (endOfPages ? OUTCOMES.COMPLETE : OUTCOMES.NEXT),
+          outcome: (endOfPages ? c.OUTCOMES.COMPLETE : c.OUTCOMES.NEXT),
           text: (endOfPages ? "Close" : "Next"),
         })
       } else {
         buttons.push({
-          outcome: OUTCOMES.COMPLETE,
+          outcome: c.OUTCOMES.COMPLETE,
           text: "Close",
           primary: true
         })
@@ -585,20 +703,20 @@ class Popup {
       const buttonData = buttons[i];
 
       var buttonElement = document.createElement('button');
-      buttonElement.classList.add(type === POPUP_TYPES.DEFAULT ? "_popup-button" : (buttonData.primary ? "_popup-button-primary" : "_popup-button-secondary"));
+      buttonElement.classList.add(type === c.POPUP_TYPES.DEFAULT ? "_popup-button" : (buttonData.primary ? "_popup-button-primary" : "_popup-button-secondary"));
       buttonElement.id = "_popup-button" + i;
       buttonElement.type = "button";
       buttonElement.setAttribute("data-id", i);
       // Possibly change assigned keys for primary and secondary buttons in the future
-      buttonElement.innerHTML = type === POPUP_TYPES.DEFAULT
+      buttonElement.innerHTML = type === c.POPUP_TYPES.DEFAULT
         ? buttonData.text :
         ('<span>' + buttonData.text + '</span><span class="' + (buttonData.primary ? '_popup-button-hint-primary' : '_popup-button-hint-secondary') + '">' + (buttonData.primary ? '&nbsp;⏎' : '&nbsp;esc') + '</span>');
       
-        let onClickFunc = () => {
-          Popup.onClick(i, buttonData.outcome);
-        }
-        buttonElement.onclick = onClickFunc;
-      if (type === POPUP_TYPES.MINI) {
+      let onClickFunc = () => {
+        Popup.onClick(i, buttonData.outcome);
+      }
+      buttonElement.onclick = onClickFunc;
+      if (type === c.POPUP_TYPES.MINI) {
         if (buttonData.primary) {
           Popup.args.primaryOnClick = onClickFunc;
         } else {
@@ -619,10 +737,10 @@ class Popup {
       }
     }
 
-    if (cancellable && type === POPUP_TYPES.MINI) {
+    if (cancellable && type === c.POPUP_TYPES.MINI) {
       content.insertAdjacentHTML('beforeend', await components.getPopupCloseHTML());
       document.getElementById("_popup-close").onclick = () => {
-        Popup.onClick(null, OUTCOMES.CANCEL);
+        Popup.onClick(null, c.OUTCOMES.CANCEL);
       };
     }
 
@@ -640,23 +758,23 @@ class Popup {
 
   static async onClick(id, outcome) {
     const currentPage = Popup.args.currentPage;
-    if (outcome === OUTCOMES.CUSTOM) {
+    if (outcome === c.OUTCOMES.CUSTOM) {
       outcome = (await Popup.args.pages[currentPage].buttons[id].onClick() ?? outcome);
     }
 
     switch (outcome) {
-      case OUTCOMES.PREV:
+      case c.OUTCOMES.PREV:
         popup.setPage(currentPage - 1);
         break;
-      case OUTCOMES.NEXT:
+      case c.OUTCOMES.NEXT:
         popup.setPage(currentPage + 1);
         break;
-      case OUTCOMES.CANCEL:
-      case OUTCOMES.COMPLETE:
+      case c.OUTCOMES.CANCEL:
+      case c.OUTCOMES.COMPLETE:
         popup.hide(outcome);
         break;
       default:
-      case OUTCOMES.IGNORE:
+      case c.OUTCOMES.IGNORE:
         return;
     }
   }
@@ -684,8 +802,8 @@ class PopupHelper {
           html: [{
             position: "afterbegin",
             content: await components.getWelcomeHtml(1, {
-              logo_url: u.getInternalVar("logoUrl"),
-              logo_w_url: u.getInternalVar("logoWUrl")
+              logo_url: await gateway.getResUrl('/src/logo_128.png'),
+              logo_w_url: await gateway.getResUrl('/src/logo_w_128.png')
             })
           }],
           script: () => {
@@ -707,7 +825,7 @@ class PopupHelper {
             text2.style.width = text1.offsetWidth + "px";
             
             let setRandomText = (text2) => {
-              text2.textContent = PRE_ENC_CHAR + u.randomStr(15 - PRE_ENC_CHAR.length);
+              text2.textContent = c.PRE_ENC_CHAR + u.randomStr(15 - c.PRE_ENC_CHAR.length);
               setTimeout(() => {
                 setRandomText(text2)
               }, 7 * 1000);
@@ -719,41 +837,74 @@ class PopupHelper {
         },
         {
           title: "Craft Your Key",
-          text: "Register your key that will be used to encrypt your data. If this is your first time here, just enter a new key and make sure to note it down. <b>It will be impossible to recover your encrypted data if you forget your key.</b>",
-          input: {
-            label: "Key",
-            placeholder: "secret"
-          },
+          text: "Use the button below to open a secure area where you can safely register your key to be used for encryption. This will open a new tab.",
           buttons: [{
-            outcome: OUTCOMES.CUSTOM,
-            text: "Next",
+            outcome: c.OUTCOMES.CUSTOM,
+            text: "Set key",
             onClick: async function() {
-              let key = document.getElementById("_input-box").value;
-              if (key.replaceAll(" ", "").length === 0) {
-                toast.show("Key cannot be empty.", "Provide a valid key and try again.", "KEY");
-                await u.sleep(3000);
-                toast.hide("KEY");
-                return OUTCOMES.IGNORE;
-              } else {
-                window.localStorage.setItem("lockSecret", key);
-                return OUTCOMES.NEXT;
+              let button = document.getElementById("_popup-button0");
+              let loader = document.getElementById("_loader");
+              let text = document.getElementById("_popup-text");
+              let buttonAction = button.getAttribute("data-action") ?? "registerKey";
+              let checkSecretAction = async () => {
+                // Ignore broadcasted actions
+                broadcastCheckTime = new Date().getTime();
+
+                if (await gateway.secretLoaded(true)) {
+                  focusTracker.clearAction();
+
+                  loader.style.display = "none";
+                  text.innerHTML = "Great, you have successfully registered your key.";
+                  button.textContent = "Next";
+                  button.setAttribute("data-action", "next");
+                }
+              };
+
+              switch (buttonAction) {
+                case "registerKey":
+                  await gateway.openOptionsPage(c.ACTIONS.SET_KEY);
+
+                  focusTracker.setAction(checkSecretAction);
+
+                  loader.style.display = "block";
+                  text.innerHTML = "The setup will continue once you have registered your key. If the tab didn't open, <a onclick='ExtensionGateway.call(\"openOptionsPage\", \"setLockKey\")'><b>click here</b></a> or navigate to the extension's options page.";
+                  button.textContent = "Check key";
+                  button.setAttribute("data-action", "checkKey");
+
+                  return c.OUTCOMES.IGNORE;
+                case "checkKey":
+                  if (await gateway.secretLoaded()) {
+                    await checkSecretAction();
+                    return c.OUTCOMES.IGNORE;
+                  } else {
+                    toast.show("Key not set", "Register a key to continue", "KEY");
+                    await u.sleep(3000);
+                    toast.hide("KEY");
+                    return c.OUTCOMES.IGNORE;
+                  }
+                case "next":
+                  return c.OUTCOMES.NEXT;
               }
             }
           }],
           html: [{
             position: "afterbegin",
             content: await components.getWelcomeHtml(2, {
-              key_url: u.getInternalVar("keyUrl")
+              key_url: await gateway.getResUrl('/src/key_128.png')
             })
+          },
+          {
+            position: "beforebuttons",
+            content: await components.getWelcomeHtml("2_loader")
           }]
         },
         {
           title: "Use Your Key",
-          text: "Now that your key is ready, you can use it seamlessly just by adding a " + LOCK_TAG + " tag to any node you want to secure. All sub-nodes of the selected node, including the ones you will add later, will be encrypted automatically.",
+          text: "Now that your key is ready, you can use it seamlessly just by adding a " + c.LOCK_TAG + " tag to any node you want to secure. All sub-nodes of the selected node, including the ones you will add later, will be encrypted automatically.",
           html: [{
             position: "afterbegin",
             content: await components.getWelcomeHtml(3, {
-              ss1_url: theme === THEMES.LIGHT ? u.getInternalVar("ss1Url") : u.getInternalVar("ss1DarkUrl")
+              ss1_url: theme === c.THEMES.LIGHT ? (await gateway.getResUrl('/src/ss1.png')) : (await gateway.getResUrl('/src/ss1_dark.png'))
             })
           }]
         },
@@ -763,8 +914,8 @@ class PopupHelper {
           html: [{
             position: "afterbegin",
             content: await components.getWelcomeHtml(4, {
-              logo_url: u.getInternalVar("logoUrl"),
-              logo_w_url: u.getInternalVar("logoWUrl")
+              logo_url: await gateway.getResUrl('/src/logo_128.png'),
+              logo_w_url: await gateway.getResUrl('/src/logo_w_128.png')
             })
           }],
           script: () => {
@@ -786,57 +937,87 @@ class PopupHelper {
       ]
     });
   }
+
+  async migrateLockKey() {
+    await u.sleep(1000);
+    await popup.create(null, null, [], false, {
+      style: await components.getWelcomeCss(),
+      pages: [
+        {
+          title: "A Little Rearrangement",
+          text: "We are updating the location where your key is stored on your device to enhance its security. Use the button below to move your key to the new location. This will open a new tab.",
+          buttons: [{
+            outcome: c.OUTCOMES.CUSTOM,
+            text: "Move key",
+            onClick: async function() {
+              let button = document.getElementById("_popup-button0");
+              let loader = document.getElementById("_loader");
+              let text = document.getElementById("_popup-text");
+              let buttonAction = button.getAttribute("data-action") ?? "moveKey";
+              
+              let checkSecretAction = async () => {
+                // Ignore broadcasted actions
+                broadcastCheckTime = new Date().getTime();
+
+                if (await gateway.getVar("keyMoved", false)) {
+                  focusTracker.clearAction();
+
+                  window.localStorage.removeItem("lockSecret");
+                  window.localStorage.removeItem("lockCache");
+
+                  loader.style.display = "none";
+                  text.innerHTML = "You have successfully moved your key to its new secure location. <b>If you bave other Workflowy tabs, reload them to prevent encryption issues.</b>";
+                  button.textContent = "Close";
+                  button.setAttribute("data-action", "next");
+                }
+              };
+
+              switch (buttonAction) {
+                case "moveKey":
+                  let secret = window.localStorage.getItem("lockSecret");
+                  await gateway.setVar("keyMoved", false);
+                  await gateway.openOptionsPage(c.ACTIONS.MOVE_KEY, secret);
+                  focusTracker.setAction(checkSecretAction);
+
+                  loader.style.display = "block";
+                  text.innerHTML = "Waiting for you key to be moved to its new location. If the tab didn't open, <a onclick='ExtensionGateway.call(\"openOptionsPage\", \"migrateLockKey\", \"" + secret + "\")'><b>click here</b></a> or navigate to the extension's options page.";
+                  button.textContent = "Check key";
+                  button.setAttribute("data-action", "checkKey");
+
+                  return c.OUTCOMES.IGNORE;
+                case "checkKey":
+                  if (await gateway.getVar("keyMoved", false)) {
+                    await checkSecretAction();
+                    return c.OUTCOMES.IGNORE;
+                  } else {
+                    toast.show("Key not set", "Confirm moving your key to continue", "KEY");
+                    await u.sleep(3000);
+                    toast.hide("KEY");
+                    return c.OUTCOMES.IGNORE;
+                  }
+                case "next":
+                  return c.OUTCOMES.COMPLETE;
+              }
+            }
+          }],
+          html: [{
+            position: "afterbegin",
+            content: await components.getWelcomeHtml(2, {
+              key_url: await gateway.getResUrl('/src/logo_128.png')
+            })
+          },
+          {
+            position: "beforebuttons",
+            content: await components.getWelcomeHtml("2_loader")
+          }]
+        }
+      ]
+    }); 
+  }
 }
 const popupHelper = new PopupHelper();
 
 class API {
-  // Tree-related part is for fetching the most up-to-date tree data, which is no longer
-  // needed as a copy of the whole tree is always tracked and kept in the memory
-
-  // TREE = {};
-
-  // async loadTree() {
-  //   this.removeTree();
-    
-  //   await this.loadSpecificTree("/get_tree_data/");
-  //   for (let shareId of shared) {
-  //     await this.loadSpecificTree("/get_tree_data/?share_id=" + shareId);
-  //   }
-  // }
-
-  // async loadSpecificTree(path) {
-  //   const treeDataRaw = await origFetch(DOMAIN + path);
-  //   const treeData = await treeDataRaw.json();
-
-  //   let notArray = false;
-  //   for (let data of treeData.items) {
-  //     if (notArray || !Array.isArray(data)) {
-  //       notArray = true;
-  //       await this.addNodeToParsedData(this.TREE, data);
-  //       continue;
-  //     }
-
-  //     for (let subData of data) {
-  //       await this.addNodeToParsedData(this.TREE, subData);
-  //     }
-  //   }
-  // }
-
-  // async addNodeToParsedData(parsedData, item) {
-  //   let id = item.id;
-  //   parsedData[id] = {};
-  //     if (item.nm !== undefined) {
-  //       parsedData[id].name = await encrypter.decrypt(item.nm);
-  //     }
-  //     if (item.no !== undefined) {
-  //       parsedData[id].description = await encrypter.decrypt(item.no);
-  //     }
-  // }
-
-  // async removeTree() {
-  //   this.TREE = {};
-  // }
-
   async pushAndPoll(operations) {
     let rawBody = {
       client_id: clientId,
@@ -852,7 +1033,7 @@ class API {
         most_recent_operation_transaction_id: mostRecentOperationTransactionId,
         operations: operationsInstance
       };
-      if (shareId !== DEFAULT_SHARE_ID) {
+      if (shareId !== c.DEFAULT_SHARE_ID) {
         pushPollDataInstance.share_id = shareId;
       }
       rawBody.push_poll_data.push(pushPollDataInstance);
@@ -861,7 +1042,7 @@ class API {
     }
 
     let body = await util.decodeBody(rawBody);
-    let response = await origFetch(DOMAIN + "/push_and_poll", {
+    let response = await origFetch(c.DOMAIN + "/push_and_poll", {
       method: 'POST',
       credentials: "same-origin",
       headers: {
@@ -870,185 +1051,69 @@ class API {
         'Wf_build_date': wfBuildDate
       },
       body: body,
-      url: DOMAIN + "/push_and_poll"
+      url: c.DOMAIN + "/push_and_poll"
     });
   }
 }
 const api = new API();
 
-class Cache {
-  get(key, defVal = null) {
-    let cacheData = window.localStorage.getItem("lockCache");
-    cacheData = cacheData ? JSON.parse(cacheData) : {};
-    return cacheData[key] ? cacheData[key].val : defVal; 
-  }
-
-  set(key, val) {
-    let cacheData = window.localStorage.getItem("lockCache");
-    cacheData = (cacheData !== null && cacheData !== undefined) ? JSON.parse(cacheData) : {};
-    cacheData[key] = {
-      val: val,
-      lastAccessed: Date.now()
-    };
-    window.localStorage.setItem("lockCache", JSON.stringify(cacheData));
-  }
-
-  clear(light = true) {
-    if (!light) {
-      window.localStorage.setItem("lockCache", undefined);
-      return;
-    }
-
-    let cacheData = window.localStorage.getItem("lockCache");
-    cacheData = (cacheData !== null && cacheData !== undefined) ? JSON.parse(cacheData) : {};
-
-    let now = Date.now();
-    let lifeDuration = 1000 * 60 * 60 * 24 * 7; // 1 week
-    for (let key in cacheData) {
-      if (now - cacheData[key].lastAccessed > lifeDuration) {
-        delete cacheData[key];
-      }
-    }
-
-    window.localStorage.setItem("lockCache", JSON.stringify(cacheData));
-  }
-}
-const cache = new Cache();
-
 class Encrypter {
-  SECRET;
-  enc;
-  dec;
-  secretLoaded = false;
-
-  constructor() {
-    this.enc = new TextEncoder();
-    this.dec = new TextDecoder();
+  async encrypt(data) {
+    return await gateway.encrypt(data);
   }
 
-  async loadSecret() {
-    let secret = window.localStorage.getItem("lockSecret");
-    if (!secret || secret === null | secret === "null" || secret === "") {
-      await popupHelper.welcome();
+  async decrypt(data) {
+    return await gateway.decrypt(data);
+  }
+
+  async checkSecret() {
+    if (await gateway.secretLoaded()) {
+      return true;
+    }
+
+    // Secret is not loaded
+    bypassLock = true;
+    let reloadPage = true;
+    staller.ready();
+
+    let blocker = await gateway.getBlocker();
+    switch (blocker) {
+      case c.ACTIONS.MOVE_KEY:
+        await popupHelper.migrateLockKey();
+        break;
+      case c.ACTIONS.WELCOME:
+        await popupHelper.welcome();
+        await gateway.setBlocker(null, true);
+        break;
+      default:
+        await popup.create(
+          "Encryption disabled",
+          "Workflowy Encrypter cannot access your key. Use the button below to set your key, if you haven't already, or cancel to use Workflowy without encryption.", [
+          {
+            text: "Cancel",
+            outcome: c.OUTCOMES.CANCEL
+          },
+          {
+            text: "Set key",
+            outcome: c.OUTCOMES.CUSTOM,
+            primary: true,
+            onClick: async function() {
+              await gateway.openOptionsPage(c.ACTIONS.SET_KEY);
+              return c.OUTCOMES.IGNORE;
+            }
+          }
+        ], true, {type: c.POPUP_TYPES.MINI});
+        reloadPage = false;
+        break;
+    }
+
+    if (reloadPage) {
       window.onbeforeunload = null;
       location.reload();
-    }
-    this.SECRET = secret;
-    this.secretLoaded = true;
-  }
-
-  async encrypt(data) {
-    if (!this.SECRET || this.SECRET === null | this.SECRET === "null" || this.SECRET === "") {
-      return data;
-    }
-    const encryptedData = await this.encryptData(data, this.SECRET);
-    cache.set(PRE_ENC_CHAR + encryptedData, data);
-    return PRE_ENC_CHAR + encryptedData;
-  }
-  
-  async decrypt(data) {
-    if (!data.startsWith(PRE_ENC_CHAR)) {
-      return data;
-    } else if (!this.SECRET || this.SECRET === null | this.SECRET === "null" || this.SECRET === "") {
-      return data;
-    }
-
-    let cachedDecryptedData = cache.get(data, null);
-    if (cachedDecryptedData !== null) {
-      return cachedDecryptedData;
-    }
-
-    let origData = data;
-    data = data.substring(PRE_ENC_CHAR.length);
-    const decryptedData = await this.decryptData(data, this.SECRET);
-    cache.set(origData, decryptedData);
-    return decryptedData || data;
-  }
-
-  // Encryption helper functions [https://github.com/bradyjoslin/webcrypto-example]
-  buff_to_base64 = (buff) => btoa(
-    new Uint8Array(buff).reduce(
-      (data, byte) => data + String.fromCharCode(byte), ''
-    )
-  );
-
-  base64_to_buf = (b64) =>
-    Uint8Array.from(atob(b64), (c) => c.charCodeAt(null));
-
-  getPasswordKey = (password) =>
-    window.crypto.subtle.importKey("raw", this.enc.encode(password), "PBKDF2", false, [
-      "deriveKey",
-    ]);
-
-  deriveKey = (passwordKey, salt, keyUsage) =>
-    window.crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: salt,
-        iterations: 250000,
-        hash: "SHA-256",
-      },
-      passwordKey,
-      { name: "AES-GCM", length: 256 },
-      false,
-      keyUsage
-    );
-
-  async encryptData(secretData, password) {
-    try {
-      const salt = window.crypto.getRandomValues(new Uint8Array(16));
-      const iv = window.crypto.getRandomValues(new Uint8Array(12));
-      const passwordKey = await this.getPasswordKey(password);
-      const aesKey = await this.deriveKey(passwordKey, salt, ["encrypt"]);
-      const encryptedContent = await window.crypto.subtle.encrypt(
-        {
-          name: "AES-GCM",
-          iv: iv,
-        },
-        aesKey,
-        this.enc.encode(secretData)
-      );
-
-      const encryptedContentArr = new Uint8Array(encryptedContent);
-      let buff = new Uint8Array(
-        salt.byteLength + iv.byteLength + encryptedContentArr.byteLength
-      );
-      buff.set(salt, 0);
-      buff.set(iv, salt.byteLength);
-      buff.set(encryptedContentArr, salt.byteLength + iv.byteLength);
-      const base64Buff = this.buff_to_base64(buff);
-      return base64Buff;
-    } catch (e) {
-      console.warn(`[Workflowy Encrypter] Encryption error`, e);
-      return "";
-    }
-  }
-
-  async decryptData(encryptedData, password) {
-    try {
-      const encryptedDataBuff = this.base64_to_buf(encryptedData);
-      const salt = encryptedDataBuff.slice(0, 16);
-      const iv = encryptedDataBuff.slice(16, 16 + 12);
-      const data = encryptedDataBuff.slice(16 + 12);
-      const passwordKey = await this.getPasswordKey(password);
-      const aesKey = await this.deriveKey(passwordKey, salt, ["decrypt"]);
-      const decryptedContent = await window.crypto.subtle.decrypt(
-        {
-          name: "AES-GCM",
-          iv: iv,
-        },
-        aesKey,
-        data
-      );
-      return this.dec.decode(decryptedContent);
-    } catch (e) {
-      console.warn(`[Workflowy Encrypter] Encryption error`, e);
-      return "";
     }
   }
 }
 const encrypter = new Encrypter();
-encrypter.loadSecret();
 
 class Util {
   async encodeBody(rawBody) {
@@ -1087,32 +1152,24 @@ class Util {
     let enforce = false;
     let id = data.id;
     let properties = {};
-    properties[PROPERTIES.PARENT] = data.prnt;
+    properties[c.PROPERTIES.PARENT] = data.prnt;
     if (data.nm !== undefined) {
       data.nm = await encrypter.decrypt(data.nm);
-      properties[PROPERTIES.NAME] = data.nm;
+      properties[c.PROPERTIES.NAME] = data.nm;
     }
     if (data.no !== undefined) {
       data.no = await encrypter.decrypt(data.no);
-      properties[PROPERTIES.DESCRIPTION] = data.no;
+      properties[c.PROPERTIES.DESCRIPTION] = data.no;
     }
 
     if (data.as) {
-      properties[PROPERTIES.LOCAL_ID] = data.id;
-      id = nodes.find(PROPERTIES.SHARE_ID, data.as, true)[0] ?? id;
+      properties[c.PROPERTIES.LOCAL_ID] = data.id;
+      id = nodes.find(c.PROPERTIES.SHARE_ID, data.as, true)[0] ?? id;
       enforce = true; // Enforce parent
     }
 
     nodes.update(id, properties, enforce);
   }
-
-  // decodeVal(val) {
-  //   if (!u.isString(val)) {
-  //     val = JSON.stringify(val);
-  //   }
-  //   val = encodeURIComponent(val).replaceAll("%20", "+");
-  //   return val;
-  // }
 
   async decryptServerResponse(json, trackedChangeData, shareId = null) {
     // trackedChanges is global and holds temporary data
@@ -1126,9 +1183,9 @@ class Util {
       let stringifyJson = [];
 
       trackedChanges = [];
-      let flags = [FLAGS.SUPPRESS_WARNINGS, FLAGS.NO_FETCH, FLAGS.TRACK_ENCRYPTION_CHANGES];
+      let flags = [c.FLAGS.SUPPRESS_WARNINGS, c.FLAGS.NO_FETCH, c.FLAGS.TRACK_ENCRYPTION_CHANGES];
       if (shareId !== null) {
-        flags.push(FLAGS.IGNORE_NULL_PARENT);
+        flags.push(c.FLAGS.IGNORE_NULL_PARENT);
       }
       let result = await util.processOperation(op, dataObj, stringifyJson, flags);
       if (result === false) {
@@ -1145,14 +1202,14 @@ class Util {
       }
 
       // Process data objects
-      result = await util.processDataObjects(dataObj, [FLAGS.FORCE_DECRYPT]);
+      result = await util.processDataObjects(dataObj, [c.FLAGS.FORCE_DECRYPT]);
       result = await util.processDataToStringify(stringifyJson);
 
       for (let changed of trackedChanges) {
         let id = changed["id"];
         let data = trackedChangeData[id] ?? {};
         data["final"] = nodes.isLocked(id);
-        data["name"] = nodes.get(id, PROPERTIES.NAME);
+        data["name"] = nodes.get(id, c.PROPERTIES.NAME);
         trackedChangeData[id] = data;
       }
     }
@@ -1177,7 +1234,7 @@ class Util {
   }
 
   async processCreateOperation(operation, dataObj, stringifyJson, flags = []) {
-    var parent = operation.data.parentid !== "None" ? operation.data.parentid : (flags.includes(FLAGS.IGNORE_NULL_PARENT) ? undefined : null);
+    var parent = operation.data.parentid !== "None" ? operation.data.parentid : (flags.includes(c.FLAGS.IGNORE_NULL_PARENT) ? undefined : null);
     operation.data.project_trees = JSON.parse(operation.data.project_trees);
     stringifyJson.push({
       contentTag: "project_trees",
@@ -1193,21 +1250,21 @@ class Util {
         process: [],
         properties: {}
       };
-      obj.properties[PROPERTIES.PARENT] = parent;
+      obj.properties[c.PROPERTIES.PARENT] = parent;
 
       if (project.nm) {
         obj.process.push({
           node: project,
           contentTag: "nm"
         });
-        obj.properties[PROPERTIES.NAME] = project.nm;
+        obj.properties[c.PROPERTIES.NAME] = project.nm;
       }
       if (project.no) {
         obj.process.push({
           node: project,
           contentTag: "no"
         });
-        obj.properties[PROPERTIES.DESCRIPTION] = project.no;
+        obj.properties[c.PROPERTIES.DESCRIPTION] = project.no;
       }
       dataObj.push(obj);
   
@@ -1229,7 +1286,7 @@ class Util {
     };
     
     if (operation.data.description !== undefined) {
-      obj.properties[PROPERTIES.DESCRIPTION] = operation.data["description"];
+      obj.properties[c.PROPERTIES.DESCRIPTION] = operation.data["description"];
       obj.process.push({
         node: operation.data,
         contentTag: "description"
@@ -1240,7 +1297,7 @@ class Util {
       });
     }
     if (operation.data.name !== undefined) {
-      obj.properties[PROPERTIES.NAME] = operation.data["name"];
+      obj.properties[c.PROPERTIES.NAME] = operation.data["name"];
       obj.process.push({
         node: operation.data,
         contentTag: "name"
@@ -1253,37 +1310,37 @@ class Util {
       // Process child nodes if exists
       const name = operation.data.name;
       const id = operation.data.projectid;
-      if (!nodes.isLocked(id) && name.includes(LOCK_TAG) && nodes.hasChild(id)) { // Encryption added
-        if (flags.includes(FLAGS.TRACK_ENCRYPTION_CHANGES)) {
+      if (!nodes.isLocked(id) && name.includes(c.LOCK_TAG) && nodes.hasChild(id)) { // Encryption added
+        if (flags.includes(c.FLAGS.TRACK_ENCRYPTION_CHANGES)) {
           trackedChanges.push({
             id: id
           });
         }
 
         await this.updateChildNodeEncryption(id, true, false, flags);
-      } else if (nodes.isLocked(id, true) && !nodes.isLocked(nodes.getParent(id)) && !name.includes(LOCK_TAG) && nodes.hasChild(id)) { // Encryption removed
-        if (flags.includes(FLAGS.TRACK_ENCRYPTION_CHANGES)) {
+      } else if (nodes.isLocked(id, true) && !nodes.isLocked(nodes.getParent(id)) && !name.includes(c.LOCK_TAG) && nodes.hasChild(id)) { // Encryption removed
+        if (flags.includes(c.FLAGS.TRACK_ENCRYPTION_CHANGES)) {
           trackedChanges.push({
             id: id
           });
         }
 
         if (
-          flags.includes(FLAGS.SUPPRESS_WARNINGS)
+          flags.includes(c.FLAGS.SUPPRESS_WARNINGS)
           || (await popup.create(
             "Confirm decryption",
-            "Are you sure you want to remove the " + LOCK_TAG + " tag and decrypt all child nodes? This will send decrypted content to Workflowy servers.",
+            "Are you sure you want to remove the " + c.LOCK_TAG + " tag and decrypt all child nodes? This will send decrypted content to Workflowy servers.",
             [
               {
                 text: "Cancel",
-                outcome: OUTCOMES.CANCEL
+                outcome: c.OUTCOMES.CANCEL
               },
               {
                 text: "Decrypt",
-                outcome: OUTCOMES.COMPLETE,
+                outcome: c.OUTCOMES.COMPLETE,
                 primary: true
               }
-            ], true, {type: POPUP_TYPES.MINI})) === OUTCOMES.COMPLETE
+            ], true, {type: c.POPUP_TYPES.MINI})) === c.OUTCOMES.COMPLETE
         ) {
           await this.updateChildNodeEncryption(id, false, false, flags);
         } else {
@@ -1300,7 +1357,7 @@ class Util {
 
   async updateChildNodeEncryption(id, encrypt, processParentNode, flags = [], processingParent = true, rootId = null, operations = null) {
     if (processingParent) {
-      if (flags.includes(FLAGS.NO_FETCH)) {
+      if (flags.includes(c.FLAGS.NO_FETCH)) {
         return true;
       }
       await toast.show((encrypt ? "Encryption" : "Decryption") + " in progress...", "Keep the page open until this message disappears.", id);
@@ -1347,19 +1404,19 @@ class Util {
         }
       };
 
-      let name = nodes.get(id, PROPERTIES.NAME);
+      let name = nodes.get(id, c.PROPERTIES.NAME);
       if (name !== undefined) {
         operation.data.name = encrypt ? await encrypter.encrypt(name) : name;
         operation.undo_data.previous_name = encrypt ? await encrypter.encrypt(name) : name;
       }
 
-      let description = nodes.get(id, PROPERTIES.DESCRIPTION);
+      let description = nodes.get(id, c.PROPERTIES.DESCRIPTION);
       if (description !== undefined) {
         operation.data.description = encrypt ? await encrypter.encrypt(description) : description;
         operation.undo_data.previous_description = encrypt ? await encrypter.encrypt(description) : description;
       }
 
-      let branch = nodes.getShareId(id) === undefined ? DEFAULT_SHARE_ID : nodes.getShareId(id);
+      let branch = nodes.getShareId(id) === undefined ? c.DEFAULT_SHARE_ID : nodes.getShareId(id);
       let operationsBranch = operations[branch] ?? [];
       operationsBranch.push(operation);
       operations[branch] = operationsBranch;
@@ -1367,7 +1424,7 @@ class Util {
   }
 
   async processMoveOperation(operation, dataObj, flags = []) {
-    var parent = operation.data.parentid !== "None" ? operation.data.parentid : (flags.includes(FLAGS.IGNORE_NULL_PARENT) ? undefined : null);
+    var parent = operation.data.parentid !== "None" ? operation.data.parentid : (flags.includes(c.FLAGS.IGNORE_NULL_PARENT) ? undefined : null);
     let ids = JSON.parse(operation.data.projectids_json);
     let decryptionAllowed = false;
     for (let id of ids) {
@@ -1375,12 +1432,12 @@ class Util {
         id: id,
         properties: {}
       }
-      obj.properties[PROPERTIES.PARENT] = parent;
+      obj.properties[c.PROPERTIES.PARENT] = parent;
       dataObj.push(obj);
 
       // Process child nodes if exists
       if (nodes.isLocked(parent) && !nodes.isLocked(id)) { // Encryption added
-        if (flags.includes(FLAGS.TRACK_ENCRYPTION_CHANGES)) {
+        if (flags.includes(c.FLAGS.TRACK_ENCRYPTION_CHANGES)) {
           trackedChanges.push({
             id: id
           });
@@ -1388,14 +1445,14 @@ class Util {
 
         await this.updateChildNodeEncryption(id, true, true, flags);
       } else if (!nodes.isLocked(parent) && nodes.isLocked(nodes.getParent(id))) { // Encryption removed
-        if (flags.includes(FLAGS.TRACK_ENCRYPTION_CHANGES)) {
+        if (flags.includes(c.FLAGS.TRACK_ENCRYPTION_CHANGES)) {
           trackedChanges.push({
             id: id
           });
         }
 
         if (
-          flags.includes(FLAGS.SUPPRESS_WARNINGS)
+          flags.includes(c.FLAGS.SUPPRESS_WARNINGS)
           || decryptionAllowed
           || (await popup.create(
             "Confirm decryption",
@@ -1403,14 +1460,14 @@ class Util {
             [
               {
                 text: "Cancel",
-                outcome: OUTCOMES.CANCEL
+                outcome: c.OUTCOMES.CANCEL
               },
               {
                 text: "Decrypt",
-                outcome: OUTCOMES.COMPLETE,
+                outcome: c.OUTCOMES.COMPLETE,
                 primary: true
               }
-            ], true, {type: POPUP_TYPES.MINI})) === OUTCOMES.COMPLETE
+            ], true, {type: c.POPUP_TYPES.MINI})) === c.OUTCOMES.COMPLETE
         ) {
           decryptionAllowed = true;
           await this.updateChildNodeEncryption(id, false, true, flags);
@@ -1453,9 +1510,9 @@ class Util {
       if (data["delete"] === true) {
         nodes.delete(id);
       } else if (data["properties"]) {
-        if (flags.includes(FLAGS.FORCE_DECRYPT)) {
+        if (flags.includes(c.FLAGS.FORCE_DECRYPT)) {
           for (let property in data["properties"]) {
-            if (SENSITIVE_PROPERTIES.includes(property)) {
+            if (c.SENSITIVE_PROPERTIES.includes(property)) {
               data["properties"][property] = await encrypter.decrypt(data["properties"][property]);
             }
           }
@@ -1473,7 +1530,7 @@ class Util {
             continue;
           }
 
-          if (flags.includes(FLAGS.FORCE_DECRYPT)) {
+          if (flags.includes(c.FLAGS.FORCE_DECRYPT)) {
             node[contentTag] = await encrypter.decrypt(node[contentTag]);
           } else if (nodes.isLocked(nodes.getParent(id)) && node && contentTag && node[contentTag] && u.isString(node[contentTag]) && node[contentTag].length > 0) {
             node[contentTag] = await encrypter.encrypt(node[contentTag]);
@@ -1500,8 +1557,8 @@ class Util {
       let treeNode = {
         share_id: nodes.getShareId(nodeId),
         id: nodeId,
-        name: nodes.get(nodeId, PROPERTIES.NAME),
-        description: nodes.get(nodeId, PROPERTIES.DESCRIPTION),
+        name: nodes.get(nodeId, c.PROPERTIES.NAME),
+        description: nodes.get(nodeId, c.PROPERTIES.DESCRIPTION),
         locked: nodes.isLocked(nodeId),
         data: node,
         children: await this.getTree(nodeId)
@@ -1551,7 +1608,7 @@ class RouteHandler {
   async postPushAndPoll(responseData) {
     // Find another point to clear cache later
     if (!cacheClearPerformed) {
-      cache.clear();
+      await gateway.clearCache();
       cacheClearPerformed = true;
     }
 
@@ -1579,8 +1636,8 @@ class RouteHandler {
         attentionNeeded.push(trackedChangeData[id]["name"]);
       }
     }
-    if (attentionNeeded.length > 0 && encrypter.secretLoaded) {
-      await popup.create("Heads Up!", LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers: <br>- " + attentionNeeded.join("<br>- "), [], true, {type: POPUP_TYPES.MINI});
+    if (attentionNeeded.length > 0 && (await gateway.secretLoaded())) {
+      await popup.create("Heads Up!", c.LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers: <br>- " + attentionNeeded.join("<br>- "), [], true, {type: c.POPUP_TYPES.MINI});
     }
 
     return new Response(JSON.stringify(responseData));
@@ -1610,17 +1667,17 @@ class RouteHandler {
     for (let info of responseData.projectTreeData.auxiliaryProjectTreeInfos) {
       if (info.rootProject.id !== undefined) {
         let node = {
-          [PROPERTIES.SHARE_ID]: info.shareId
+          [c.PROPERTIES.SHARE_ID]: info.shareId
         };
 
         if (info.rootProject.nm !== undefined) {
           info.rootProject.nm = await encrypter.decrypt(info.rootProject.nm);
-          node[PROPERTIES.NAME] = info.rootProject.nm;
+          node[c.PROPERTIES.NAME] = info.rootProject.nm;
         }
 
         if (info.rootProject.no !== undefined) {
           info.rootProject.no = await encrypter.decrypt(info.rootProject.no);
-          node[PROPERTIES.DESCRIPTION] = info.rootProject.no;
+          node[c.PROPERTIES.DESCRIPTION] = info.rootProject.no;
         }
         
         nodes.update(info.rootProject.id, node);
@@ -1637,6 +1694,10 @@ class FetchWrapper {
    * Modify and return request params
    */
   async onPreFetch(url, params) {
+    if (bypassLock && !quarantine) {
+      return params;
+    }
+
     if (u.endpointMatches("/push_and_poll", "POST", url, params)) {
       return await routes.prePushAndPoll(params);
     }
@@ -1647,6 +1708,10 @@ class FetchWrapper {
    * Modify response body
    */
   async onPostFetch(url, params, response) {
+    if (bypassLock && !quarantine) {
+      return response;
+    }
+
     let responseData = await response.clone().json();
     if (responseData.results && Array.isArray(responseData.results) && responseData.results.length > 0 && responseData.results[0].new_most_recent_operation_transaction_id) {
       mostRecentOperationTransactionId = responseData.results[0].new_most_recent_operation_transaction_id;
@@ -1664,8 +1729,36 @@ class FetchWrapper {
 }
 const fetchWrapper = new FetchWrapper();
 
+class Staller {
+  static items = [];
+  static ready = false;
+
+  static addItem(resolve) {
+    Staller.items.push(resolve);
+  }
+
+  waitUntilReady() {
+    return new Promise(resolve => {
+      if (Staller.ready) {
+        return resolve();
+      }
+      Staller.addItem(resolve);
+    });
+  }
+
+  ready() {
+    Staller.ready = true;
+    for (let resolve of Staller.items) {
+      resolve();
+    }
+    Staller.items = [];
+  }
+}
+const staller = new Staller();
+
 // Fetch wrapper [https://stackoverflow.com/a/64961272]
 window.fetch = async (...args) => {
+  await staller.waitUntilReady();
   if (quarantine) {
     return;
   }
@@ -1683,3 +1776,15 @@ window.fetch = async (...args) => {
 
   return await fetchWrapper.onPostFetch(url, params, response);
 };
+
+(async () => {
+  // Init
+  await c.init();
+  u.updateTheme();
+  await gateway.setVar("theme", theme);
+  toast.init();
+  window.onfocus = focusTracker.onChange.bind(focusTracker);
+
+  await encrypter.checkSecret();
+  staller.ready();
+})();

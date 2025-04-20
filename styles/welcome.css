@@ -216,3 +216,39 @@
         margin-top: -500px;
     }
 }
+
+/* Loader animation [https://css-loaders.com/pulsing/] */
+._loader {
+    width: 12px;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: rgb(112, 136, 170);
+    box-shadow: 0 0 0 0 rgba(112, 136, 170, 0.7);
+    animation: anim-loader 2s infinite;
+    display: inline-block;
+    vertical-align: middle;
+}
+@keyframes anim-loader {
+    60% {box-shadow: 0 0 0 0 rgba(112, 136, 170, 0.7)}
+    100% {box-shadow: 0 0 0 10px rgba(112, 136, 170, 0)}
+}
+
+._loader-text {
+    display: inline-block;
+    text-align: center;
+    vertical-align: middle;
+    padding-left: 8px;
+    opacity: 0.4;
+}
+
+._loader-box {
+    position: relative;
+    margin: 0 auto;
+    align-items: center;
+    text-align: center;
+    padding: 0;
+    
+    margin-top: -8px;
+    font-size: 14px;
+    line-height: 14px;
+}

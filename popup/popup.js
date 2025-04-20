@@ -14,3 +14,5 @@ document.addEventListener('DOMContentLoaded', function () {
 
 // Show version number
 document.getElementById("version").innerText = chrome.runtime.getManifest().version;
+
+// TODO: update lock key and add link to options page
