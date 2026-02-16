@@ -52,6 +52,13 @@ The extension is built for Chromium-based browsers; other browsers are not curre
 4. Click on "Load unpacked."
 5. Select the folder containing extension files.  
 
+## Manual Decryption
+To manually decrypt the content that is encrypted by Workflowy Encrypter, check out the [Decryption Helper Tool](/tools/decryption-helper.html). Just like Workflowy Ecnrypter itself, the tool runs on your machine and decrypts your data locally.
+1. Dwonload the `decryption-helper.html` file.
+2. Click on the file to open it on your browser.
+3. Enter your encryption key and the ecnrypted content.
+4. Click on the Decrypt button.
+
 ## Data & Privacy
 Workflowy Encrypter does not collect data from any user; there is not even a remote server dedicated to this extension. All processing is done locally on your device and shared with
 neither the developer nor any third parties.
