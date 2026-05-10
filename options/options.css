@@ -1,0 +1,405 @@
+/* TODO: Change color based on theme */
+body {
+    background: #2a3135;
+    padding: 0;
+    margin: 0;
+}
+
+.top {
+    height: 48px;
+    background-color: #2a3135;
+    border-bottom: 1px solid #43484b;
+
+    display: flex;
+    align-items: center;
+}
+
+.top-logo {
+    width: 18px;
+    height: 18px;
+    margin-right: 4px;
+    margin-left: 129px;
+    user-select: none;
+}
+
+.top-separator {
+    color: #9ea1a2;
+    margin-left: 8px;
+}
+
+.top-first-separator {
+    margin-left: 13px;
+}
+
+.top-text {
+    color: #9ea1a2;
+    font-family: Open Sans, sans-serif;
+    font-size: .84rem;
+    line-height: 1.2rem;
+    cursor: pointer;
+    margin-left: 8px;
+    vertical-align: baseline;
+    background: transparent;
+    user-select: none;
+    opacity: 0.7;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+.top-text:hover {
+    opacity: 1;
+    text-decoration: underline;
+}
+
+.top-text-active {
+    opacity: 1;
+}
+
+.content {
+    line-height: 34px;
+    height: 100px;
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+
+    position: relative;
+    user-select: none;
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 700px;
+    padding: 24px 56px;
+    margin-top: 23px;
+    text-size-adjust: none;
+}
+
+.content-title {
+    margin: 0;
+    padding: 0;
+    line-height: 34px;
+    font-size: 27px;
+    font-weight: bold;
+    cursor: default;
+    margin-bottom: 14px;
+}
+
+.node {
+    position: relative;
+    cursor: default;
+    margin-top: -.5px;
+    margin-bottom: 8.5px;
+
+}
+.input-node {
+    display: flex;
+    flex-wrap: wrap;
+    margin-top: 48px;
+    margin-bottom: 24px;
+}
+
+.node-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-weight: normal;
+
+    margin: 0;
+    padding: 0;
+    line-height: 24px;
+    font-size: 15px;
+    margin-left: 24px;
+}
+
+.input-node .node-text {
+    min-width: 96px;
+    font-size: 15px;
+    line-height: 30px;
+}
+
+.node-subtext {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-weight: normal;
+    color: #9ea1a2;
+
+    margin: 0;
+    padding: 0;
+    line-height: 17px;
+    font-size: 13px;
+    margin-left: 24px;
+    margin-bottom: 6px;
+}
+
+.node-flex-break {
+    flex-basis: 100%;
+    height: 0;
+}
+
+.node-input-subtext {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-weight: normal;
+    color: #9ea1a2;
+
+    margin: 0;
+    padding: 0;
+    line-height: 17px;
+    font-size: 13px;
+    margin-top: 8px;
+    margin-left: 120px;
+    margin-bottom: 6px;
+}
+
+.node-input {
+    display: flex;
+    flex-direction: column;
+    border-radius: 4px;
+    margin: 0px;
+    padding: 8px;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    background: rgb(42, 49, 53);
+    color: rgb(255, 255, 255);
+    border: 1px solid rgb(92, 96, 98);
+}
+.node-input-inner {
+    display: flex;
+    margin-top: 12px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    font-size: 100%;
+    vertical-align: baseline;
+    background: transparent;
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+.node-circle {
+    background: #5c6062;
+    position: absolute;
+    display: inline-block;
+    left: 1px;
+    top: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    color: #d9dbdb;
+    cursor: pointer;
+}
+
+.clickable-node {
+    cursor: pointer;
+    margin-bottom: 4px;
+    margin-top: 0;
+}
+.clickable-node:hover .node-circle {
+    background: #7d7f81;
+}
+
+.node-buttons {
+    text-align: center;
+    margin-top: 24px;
+}
+
+.node-button {
+    text-rendering: auto;
+    letter-spacing: normal;
+    word-spacing: normal;
+    text-transform: none;
+    text-indent: 0px;
+    text-shadow: none;
+    align-items: flex-start;
+    margin: 0em;
+    padding-block: 1px;
+    padding-inline: 6px;
+    display: inline-block;
+    position: relative;
+    appearance: none;
+    border: none;
+    outline: none;
+    border-radius: 12px;
+    box-sizing: border-box;
+    line-height: 16px;
+    padding: 4px 12px;
+    background: rgb(236, 238, 240);
+    color: rgb(42, 49, 53);
+    font-family: inherit;
+    font-weight: 500;
+    font-size: 12px;
+    text-align: center;
+    text-decoration: none;
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+
+    background: rgb(66, 72, 75);
+    color: rgb(255, 255, 255);
+}
+.node-button:hover {
+    background: rgb(94, 96, 98);
+}
+
+.banner {
+    position: relative;
+    /* background-color: #6989ad; */
+    background-color: #4f6782;
+    border-radius: 8px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    box-sizing: border-box;
+    padding: 20px;
+    margin-top: 12px;
+    outline: 1.5px solid #8ea6c2;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.animated-banner {
+    background-color: black;
+    color: white;
+    outline: transparent;
+}
+
+.banner-animated-background {
+    position: relative;
+    white-space: initial;
+    word-wrap: break-word;
+    width: 100%;
+    height: 130px;
+    padding: 0;
+    margin: 0;
+
+    font-family: "Nto Sans Moono", monospace;
+    font-variation-settings: "wdth" 100;
+    font-optical-sizing: auto;
+    font-weight: 500;
+    line-height: 12px;
+    font-size: 12px;
+}
+
+.banner-foreground {
+    font-size: 124px; 
+    font-weight: bold;
+    width: 100%;
+    height: 100%;
+    text-align: center;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+
+    text-align: center;
+    vertical-align: middle;
+    line-height: 150px;
+
+    font-family: "Varela Round", sans-serif;
+    font-weight: 600;
+    font-style: normal;
+
+    background-color: black;
+    color: white;
+    mix-blend-mode: multiply;
+}
+
+.banner-color {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    background: #2a3135;
+    mix-blend-mode: lighten;
+}
+
+.banner-anim-subtext {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    font-size: 14px;
+    line-height: 14px;
+    position: absolute;
+    bottom: 14px;
+    color: #ffffff;
+    opacity: .8;
+    width: 460px;
+    text-align: right;
+    left: 0; 
+    right: 0; 
+    margin-inline: auto;
+}
+
+.banner-title {
+    color: #ffffff;
+    font-family: Open Sans, sans-serif;
+    font-size: 16px;
+    font-weight: bold;
+    opacity: .95;
+    margin: 0 0 4px 0;
+
+    line-height: 24px;
+    font-size: 15px;
+}
+
+.banner-text {
+    color: #ffffff;
+    font-family: Open Sans, sans-serif;
+    font-size: 16px;
+    opacity: .9;
+    margin: 0 0 20px 0;
+
+    line-height: 24px;
+    font-size: 15px;
+}
+
+.banner-link {
+    color: #ffffff;
+    text-decoration: none;
+    text-decoration: underline;
+    opacity: .9;
+}
+.banner-link:hover {
+    opacity: 1;
+}
+
+.banner-image {
+    position: absolute;
+    bottom: 18px;
+    right: 18px;
+    height: 22px;
+    opacity: .7;
+}
+
+.transition {
+    transition: all .1s;
+}
+
+.textbox {
+    margin: 0 auto;
+    width: 95%;
+}
+
+.subtext {
+    color: #666;
+    word-break: normal;
+    cursor: default;
+
+    white-space: pre-wrap;
+    font-size: 10px;
+    line-height: 14px;
+    text-align: center;
+
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+.subtext a {
+    color: #666;
+}
+
+.tag {
+    color: rgb(134, 140, 144);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    font-size: 100%;
+    vertical-align: baseline;
+    background: transparent;
+    cursor: text;
+}
