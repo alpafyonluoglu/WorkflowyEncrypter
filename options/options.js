@@ -98,6 +98,25 @@ class Constants {
 }
 const c = new Constants();
 
+// Create shared Popup instance for the extension context (options page is always dark)
+const popup = new Popup({
+    resourceLoader: async (path) => {
+        const res = await fetch(chrome.runtime.getURL(path));
+        return res.text();
+    },
+    styleInjector: async (parent, paths) => {
+        // Use <link> tags instead of inline <style> to satisfy extension CSP
+        for (const path of paths) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = chrome.runtime.getURL(path);
+            parent.appendChild(link);
+        }
+    },
+    isDarkTheme: () => true
+});
+popup.preload();
+
 class ContentManager {
     async getBannerContent() {
         const isSecretLoaded = await gateway.isSecretLoaded(true);
@@ -129,6 +148,14 @@ class ContentManager {
         parent.appendChild(pageManager.createTextNode("Feel the comfort of privacy... Use the options given below to customize Workflowy Encrypter just the way you want."));
         parent.appendChild(pageManager.createTextNode("Set Key", "Set a key to be used to encrypt your data.", () => {
             pageManager.setPage(c.PAGES.SET_KEY);
+        }));
+        parent.appendChild(pageManager.createTextNode("Clear Cache", "Remove stored derived encryption keys.", async () => {
+            const outcome = await popup.open(PopupTemplates.confirm(
+                "Clear Cache",
+                "This will remove all stored derived encryption keys. They will be re-derived automatically as needed, which may cause a brief slowdown on first use.",
+                "Clear Cache"
+            ));
+            if (outcome === Popup.OUTCOMES.COMPLETE) await gateway.clearCache(false);
         }));
         // TODO: Set #private tag
         // TODO: about & contact page (github page, rate us (on Chrome Webstore), contact developer, version number)
@@ -171,7 +198,7 @@ class ContentManager {
                     }
                     subtext.textContent = [c.ACTIONS.SET_KEY, c.ACTIONS.MOVE_KEY].includes(action) ? "Key saved! You can close this tab now." : "Key saved!";
                     subtext.style.visibility = "visible";
-                }                
+                }
             }
         ]));
 
@@ -181,7 +208,7 @@ class ContentManager {
     async loadMoveKeyContent(parent) {
         await this.loadSetKeyContent(parent, {
             moveText: "Confirm your key below to move it to its new location. From now on, you will be able to manage your key and customize the encryption options from the extension options page.",
-            secretToMove: actionArg,            
+            secretToMove: actionArg,
             onsave: async () => {
                 await gateway.setVar("keyMoved", true);
                 await gateway.setStorage("blocker", null);
@@ -198,10 +225,10 @@ class PageManager {
 
     async updatePageContent(path, showBanner = false) {
         this.updateTopBar(path);
-    
+
         const contentParent = document.getElementById("content");
         contentParent.innerHTML = "";
-    
+
         contentParent.appendChild(this.createTitle(path[path.length - 1]));
         if (showBanner) {
             let [banner, animate] = await this.createBanner();
@@ -310,7 +337,7 @@ class PageManager {
         textElement.classList.add("node-text");
         textElement.innerHTML = text;
         node.appendChild(textElement);
-        
+
         const nodeInput = document.createElement("div");
         nodeInput.classList.add("node-input");
         node.appendChild(nodeInput);
@@ -381,11 +408,11 @@ class PageManager {
 
         return node;
     }
- 
+
     updateTopBar(path) {
         const top = document.getElementById("top");
         top.innerHTML = "";
-        
+
         const img = document.createElement("img");
         img.classList.add("top-logo");
         img.src = "/src/logo_outline_dark_32.png";
@@ -511,7 +538,7 @@ class Animator {
 
             await u.sleep(3200);
         }
-    }    
+    }
 }
 const animator = new Animator();
 

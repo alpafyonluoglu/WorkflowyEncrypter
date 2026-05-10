@@ -95,10 +95,6 @@ class Constants {
   LOCK_TAG = undefined;
   DOMAIN = "https://workflowy.com";
   DEFAULT_SHARE_ID = 'DEFAULT';
-  POPUP_TYPES = {
-    DEFAULT: 0,
-    MINI: 1
-  };
   TOAST_STATES = {
     HIDDEN: 0,
     TRANSITIONING: 1,
@@ -122,14 +118,6 @@ class Constants {
     NO_FETCH: 2,
     TRACK_ENCRYPTION_CHANGES: 3,
     IGNORE_NULL_PARENT: 4
-  };
-  OUTCOMES = {
-    IGNORE: -1,
-    CANCEL: 0,
-    PREV: 1,
-    NEXT: 2,
-    COMPLETE: 3,
-    CUSTOM: 4
   };
 
   constructor() {
@@ -168,7 +156,7 @@ class FocusTracker {
 
     const reloadBroadcast = await gateway.getVar("reloadBroadcast", null) ?? {};
     if ((reloadBroadcast.time !== undefined && reloadBroadcast.time > broadcastCheckTime) && !pendingReload) {
-      let popupTitle = "Quick Refresh Needed"; 
+      let popupTitle = "Quick Refresh Needed";
       let popupText = "Some behind-the-scenes changes need a quick refresh to take effect. Reload the page to stay up to date.";
       switch (reloadBroadcast.reason) {
         case c.RELOAD_REASONS.UPDATE:
@@ -186,23 +174,15 @@ class FocusTracker {
       }
 
       pendingReload = true;
-      await popup.create(null, null, [], false, {
+      await popup.open({
         style: await components.getWelcomeCss(),
+        cancellable: false,
         pages: [
-          {
-            title: popupTitle,
-            text: popupText,
-            buttons: [{
-              outcome: c.OUTCOMES.COMPLETE,
-              text: "Reload"
-            }],
-            html: [{
-              position: "afterbegin",
-              content: await components.getWelcomeHtml(2, {
-                key_url: await gateway.getResUrl('/src/logo_128.png')
-              })
-            }]
-          }
+          new PopupPage(popupTitle, popupText)
+            .addButton(new PopupButton("Reload", Popup.OUTCOMES.COMPLETE))
+            .addHtml("afterbegin", await components.getWelcomeHtml(2, {
+              key_url: await gateway.getResUrl('/src/logo_128.png')
+            }))
         ]
       });
       window.onbeforeunload = null;
@@ -264,7 +244,7 @@ class NodeTracker {
     delete this.NODES[id];
   }
 
-  
+
   /**
    * Return node if no property is specified
    * Return node's property if property is specified
@@ -290,7 +270,7 @@ class NodeTracker {
   getShareId(id) {
     return this.get(id, c.PROPERTIES.SHARE_ID, true);
   }
-  
+
   getParent(id) {
     return this.get(id, c.PROPERTIES.PARENT, false);
   }
@@ -328,18 +308,8 @@ const nodes = new NodeTracker();
 
 class ComponentLoader {
   // For a native look, HTML and CSS are taken from the Workflowy's site
-  async getPopupContainerHTML() {
-    let path = await gateway.getResUrl('/layouts/popup_container.html');
-    return await this.readFile(path);
-  }
-
   async getToastContainerHTML() {
     let path = await gateway.getResUrl('/layouts/toast_container.html');
-    return await this.readFile(path);
-  }
-
-  async getPopupCloseHTML() {
-    let path = await gateway.getResUrl('/layouts/popup_close.html');
     return await this.readFile(path);
   }
 
@@ -350,29 +320,6 @@ class ComponentLoader {
     switch (theme) {
       case c.THEMES.DARK:
         let path = await gateway.getResUrl('/styles/welcome_dark.css');
-        css += '\n' + await this.readFile(path);
-        break;
-      case c.THEMES.LIGHT:
-      default:
-        break;
-    }
-
-    return css;
-  }
-
-  async getPopupCss(type = c.POPUP_TYPES.DEFAULT) {
-    let path = await gateway.getResUrl('/styles/popup.css');
-    let css = await this.readFile(path);
-
-    path = await gateway.getResUrl('/styles/popup_type' + type + '.css');
-    css += '\n' + await this.readFile(path);
-
-    switch (theme) {
-      case c.THEMES.DARK:
-        let path = await gateway.getResUrl('/styles/popup_dark.css');
-        css += '\n' + await this.readFile(path);
-
-        path = await gateway.getResUrl('/styles/popup_type' + type + '_dark.css');
         css += '\n' + await this.readFile(path);
         break;
       case c.THEMES.LIGHT:
@@ -511,331 +458,22 @@ class Toast {
 }
 const toast = new Toast();
 
-/**
- * Can be called by a single process at a time
- * Async popup with multiple pages
- * Call with await to block the execution until the popup is closed
- * args: {
- *  type: int,
- *  style: string,
- *  pages: [{
- *   title: string,
- *   text: string,
- *   input: {
- *    label: string,
- *    placeholder: string
- *   }
- *   buttons: [{
- *    outcome: int,
- *    text: string,
- *    focus: bool,
- *    primary: bool,
- *    onClick: function
- *   }],
- *   html: [{
- *    position: string,
- *    content: string
- *   }],
- *   script: function
- *  }]
- * }
- */
-class Popup {
-  static resolve = null;
-  static args = null;
-
-  create(title, text, buttons = [], cancellable = true, args = {}) {
-    return new Promise(async (resolve, reject) => {
-      Popup.resolve = resolve;
-      Popup.args = args;
-
-      // Create page from function args
-      if (!args.pages || !Array.isArray(args.pages) || args.pages.length === 0) {
-        args.pages = [{
-          title: title,
-          text: text,
-          buttons: buttons
-        }];
-      }
-
-      // Create popup
-      document.body.insertAdjacentHTML("afterbegin", await components.getPopupContainerHTML());
-      u.updateTheme();
-      var popupElement = document.getElementById("_popup");
-      var element = document.createElement('style');
-      element.textContent = await components.getPopupCss(args.type);
-      popupElement.appendChild(element);
-      if (args.style) {
-        var element = document.createElement('style');
-        element.textContent = args.style;
-        popupElement.appendChild(element);
-      }
-      await u.sleep(300);
-
-      Popup.args.pageCount = args.pages.length;
-      Popup.args.currentPage = 0;
-      Popup.args.cancellable = cancellable;
-      Popup.args.type = Popup.args.type ?? c.POPUP_TYPES.DEFAULT;
-      this.setPage(0);
-      this.show();
-
-      if (cancellable) {
-        document.getElementById("_popup").addEventListener('click', function(evt) {
-          if ( evt.target != this ) return false;
-          Popup.onClick(null, c.OUTCOMES.CANCEL);
-        });
-      }
-    });
-  }
-
-  async show() {
-    let popupElement = document.getElementById("_popup");
-    let popupBoxElement = document.getElementById("_popup-box");
-    popupElement.style.visibility = "visible";
-    popupElement.style.opacity = "0";
-    popupElement.style.transition = "all .3s ease-in-out";
-    popupBoxElement.style.marginTop = "6vh";
-    popupBoxElement.style.transform = "scale(0.98)";
-    popupBoxElement.style.transition = "all .3s ease-in-out";
-    await u.sleep(300);
-    popupBoxElement.style.marginTop = "10vh";
-    popupBoxElement.style.transform = "scale(1)";
-    popupElement.style.opacity = "1";
-    await u.sleep(300);
-
-    if (document.activeElement) {
-      Popup.args.activeElement = document.activeElement;
-      document.activeElement.blur();
-    }
-    if (Popup.args.type === c.POPUP_TYPES.MINI) {
-      document.addEventListener('keydown', Popup.onKeyPress);
-    }
-  }
-
-  async hide(outcome = c.OUTCOMES.CANCEL) {
-    if (Popup.args.type === c.POPUP_TYPES.MINI) {
-      document.removeEventListener('keydown', Popup.onKeyPress);
-    }
-    if (Popup.args.activeElement) {
-      Popup.args.activeElement.focus();
-    }
-
-    let popupElement = document.getElementById("_popup");
-    let popupBoxElement = document.getElementById("_popup-box");
-    popupElement.style.opacity = "0";
-    popupBoxElement.style.marginTop = "6vh";
-    popupBoxElement.style.transform = "scale(0.98)";
-    await u.sleep(300);
-    document.getElementById("_popup").remove();
-
-    let resolve = Popup.resolve;
-    Popup.resolve = null;
-    Popup.args = {};
-    resolve(outcome);
-  }
-
-  async setPage(pageIndex) {
-    const popupBoxElement = document.getElementById("_popup-box");
-    const pageCount = Popup.args.pageCount;
-    const endOfPages = pageIndex === pageCount - 1;
-    const cancellable = Popup.args.cancellable;
-    const type = Popup.args.type;
-    const page = Popup.args.pages[pageIndex];
-
-    const title = page["title"] ?? "";
-    const text = page["text"] ?? "";
-    const input = page["input"] ?? null;
-    const buttons = page["buttons"] ?? [];
-    let htmlList = page["html"] ?? [];
-    const script = page["script"] ?? (() => {});
-
-    // Remove current page
-    let content = document.getElementById("_popup-content");
-    if (content.children.length !== 0) {
-      content.style.opacity = "0";
-      await u.sleep(300);
-      content.replaceChildren();
-    }
-
-    // Load new page
-    var titleElement = document.createElement('p');
-    titleElement.classList.add("_popup-title");
-    titleElement.textContent = title;
-    content.appendChild(titleElement);
-
-    var textElement = document.createElement('p');
-    textElement.classList.add("_popup-text");
-    textElement.id = "_popup-text";
-    textElement.textContent = text;
-    content.appendChild(textElement);
-
-    if (input !== null) {
-      var divElement1 = document.createElement('div');
-      divElement1.classList.add("_input");
-      content.appendChild(divElement1);
-      
-      var textElement = document.createElement('p');
-      textElement.classList.add("_input-text");
-      textElement.textContent = input["label"];
-      divElement1.appendChild(textElement);
-
-      var divElement2 = document.createElement('div');
-      divElement2.classList.add("_input-box-container");
-      divElement1.appendChild(divElement2);
-
-      var inputElement = document.createElement('input');
-      inputElement.classList.add("_input");
-      inputElement.type = 'text';
-      inputElement.placeholder = input["placeholder"];
-      inputElement.id = "_input-box";
-      divElement2.appendChild(inputElement);
-    }
-
-    if (htmlList.length > 0) {
-      htmlList = htmlList.filter((htmlItem) => {
-        if (htmlItem.position === "beforebuttons") {
-          content.insertAdjacentHTML("beforeend", htmlItem.content);
-          return false;
-        }
-        return true;
-      });
-    }
-
-    var buttonsElement = document.createElement('div');
-    buttonsElement.classList.add("_popup-buttons");
-    buttonsElement.id = "_popup-buttons";
-    content.appendChild(buttonsElement);
-    
-    if (buttons.length === 0) {
-      if (type === c.POPUP_TYPES.DEFAULT) {
-        buttons.push({
-          outcome: (endOfPages ? c.OUTCOMES.COMPLETE : c.OUTCOMES.NEXT),
-          text: (endOfPages ? "Close" : "Next"),
-        })
-      } else {
-        buttons.push({
-          outcome: c.OUTCOMES.COMPLETE,
-          text: "Close",
-          primary: true
-        })
-      }
-    }
-
-    for (let i = 0; i < buttons.length; i++) {
-      const buttonData = buttons[i];
-
-      var buttonElement = document.createElement('button');
-      buttonElement.classList.add(type === c.POPUP_TYPES.DEFAULT ? "_popup-button" : (buttonData.primary ? "_popup-button-primary" : "_popup-button-secondary"));
-      buttonElement.id = "_popup-button" + i;
-      buttonElement.type = "button";
-      buttonElement.setAttribute("data-id", i);
-      // Possibly change assigned keys for primary and secondary buttons in the future
-      if (type === c.POPUP_TYPES.DEFAULT) {
-        buttonElement.textContent = buttonData.text;
-      } else {
-        const textSpan = document.createElement('span');
-        textSpan.textContent = buttonData.text;
-        const hintSpan = document.createElement('span');
-        hintSpan.classList.add(buttonData.primary ? '_popup-button-hint-primary' : '_popup-button-hint-secondary');
-        hintSpan.textContent = '&nbsp;' + (buttonData.primary ? '⏎' : 'esc');
-        buttonElement.append(textSpan, hintSpan);
-      }
-      
-      let onClickFunc = () => {
-        Popup.onClick(i, buttonData.outcome);
-      }
-      buttonElement.onclick = onClickFunc;
-      if (type === c.POPUP_TYPES.MINI) {
-        if (buttonData.primary) {
-          Popup.args.primaryOnClick = onClickFunc;
-        } else {
-          Popup.args.secondaryOnClick = onClickFunc;
-        }
-      }
-      buttonsElement.appendChild(buttonElement);
-
-      if (buttonData.focus === true) {
-        await u.sleep(100);
-        buttonElement.focus();
-      }
-    }
-
-    if (htmlList.length > 0) {
-      for (let htmlItem of htmlList) {
-        content.insertAdjacentHTML(htmlItem.position, htmlItem.content);
-      }
-    }
-
-    if (cancellable && type === c.POPUP_TYPES.MINI) {
-      content.insertAdjacentHTML('beforeend', await components.getPopupCloseHTML());
-      document.getElementById("_popup-close").onclick = () => {
-        Popup.onClick(null, c.OUTCOMES.CANCEL);
-      };
-    }
-
-    await u.sleep(100);
-    script();
-
-    popupBoxElement.style.minHeight = "0";
-    Popup.args.currentPage = pageIndex;
-    content.style.opacity = "1";
-
-    await u.sleep(300);
-    let popupBoxHeight = popupBoxElement.offsetHeight;
-    popupBoxElement.style.minHeight = popupBoxHeight + "px";
-  }
-
-  static async onClick(id, outcome) {
-    const currentPage = Popup.args.currentPage;
-    if (outcome === c.OUTCOMES.CUSTOM) {
-      outcome = (await Popup.args.pages[currentPage].buttons[id].onClick() ?? outcome);
-    }
-
-    switch (outcome) {
-      case c.OUTCOMES.PREV:
-        popup.setPage(currentPage - 1);
-        break;
-      case c.OUTCOMES.NEXT:
-        popup.setPage(currentPage + 1);
-        break;
-      case c.OUTCOMES.CANCEL:
-      case c.OUTCOMES.COMPLETE:
-        popup.hide(outcome);
-        break;
-      default:
-      case c.OUTCOMES.IGNORE:
-        return;
-    }
-  }
-
-  static async onKeyPress(event) {
-    event.stopPropagation();
-    if (event.key === 'Enter' || event.keyCode === 13) {
-      Popup.args.primaryOnClick();
-    } else if (event.key === 'Escape' || event.keyCode === 27) {
-      Popup.args.secondaryOnClick();
-    }
-  }
-}
-const popup = new Popup();
-
 class PopupHelper {
   async welcome() {
     await u.sleep(2000);
-    return await popup.create(null, null, [], false, {
+    return await popup.open({
       style: await components.getWelcomeCss(),
+      cancellable: false,
       pages: [
-        {
-          title: "Let's Secure Your Data",
-          text: "Welcome to Workflowy Encrypter! To enable seamless client-side encryption, follow this brief setup and let us help you secure your data.",
-          html: [{
-            position: "afterbegin",
-            content: await components.getWelcomeHtml(1, {
-              logo_url: await gateway.getResUrl('/src/logo_128.png'),
-              logo_w_url: await gateway.getResUrl('/src/logo_w_128.png')
-            })
-          }],
-          script: () => {
+        new PopupPage(
+          "Let's Secure Your Data",
+          "Welcome to Workflowy Encrypter! To enable seamless client-side encryption, follow this brief setup and let us help you secure your data."
+        )
+          .addHtml("afterbegin", await components.getWelcomeHtml(1, {
+            logo_url: await gateway.getResUrl('/src/logo_128.png'),
+            logo_w_url: await gateway.getResUrl('/src/logo_w_128.png')
+          }))
+          .setScript(() => {
             const text1 = document.getElementById("we-text1");
             const text2 = document.getElementById("we-text2");
             const blue = document.getElementById("_blue");
@@ -846,13 +484,13 @@ class PopupHelper {
               elemRect = logo.getBoundingClientRect(),
               offsetTop   = elemRect.top - boxRect.top,
               offsetLeft   = elemRect.left - boxRect.left;
-    
+
             blue.style.left = offsetLeft + (64/2) - 1 + "px";
             blue.style.top = offsetTop + (64/2) + "px";
             blueContent.style.left = (-offsetLeft - (64/2) + 1) + "px";
             blueContent.style.top = (-offsetTop - (64/2)) + "px";
             text2.style.width = text1.offsetWidth + "px";
-            
+
             let setRandomText = (text2) => {
               text2.textContent = c.PRE_ENC_CHAR + u.randomStr(15 - c.PRE_ENC_CHAR.length);
               setTimeout(() => {
@@ -862,100 +500,87 @@ class PopupHelper {
             setTimeout(() => {
               setRandomText(text2)
             }, 6 * 1000);
-          }
-        },
-        {
-          title: "Craft Your Key",
-          text: "Use the button below to open a secure area where you can safely register your key to be used for encryption. This will open a new tab.",
-          buttons: [{
-            outcome: c.OUTCOMES.CUSTOM,
-            text: "Set key",
-            onClick: async function() {
-              let button = document.getElementById("_popup-button0");
-              let loader = document.getElementById("_loader");
-              let text = document.getElementById("_popup-text");
-              let buttonAction = button.getAttribute("data-action") ?? "registerKey";
-              let checkSecretAction = async () => {
-                // Ignore broadcasted actions
-                broadcastCheckTime = new Date().getTime();
+          }),
 
-                if (await gateway.secretLoaded(true)) {
-                  focusTracker.clearAction();
+        new PopupPage(
+          "Craft Your Key",
+          "Use the button below to open a secure area where you can safely register your key to be used for encryption. This will open a new tab."
+        )
+          .addButton(new PopupButton("Set key", Popup.OUTCOMES.CUSTOM).setOnClick(async function() {
+            let button = document.getElementById("_popup-button0");
+            let loader = document.getElementById("_loader");
+            let text = document.getElementById("_popup-text");
+            let buttonAction = button.getAttribute("data-action") ?? "registerKey";
+            let checkSecretAction = async () => {
+              // Ignore broadcasted actions
+              broadcastCheckTime = new Date().getTime();
 
-                  loader.style.display = "none";
-                  text.textContent = "Great, you have successfully registered your key.";
-                  button.textContent = "Next";
-                  button.setAttribute("data-action", "next");
-                }
-              };
+              if (await gateway.isSecretLoaded(true)) {
+                focusTracker.clearAction();
 
-              switch (buttonAction) {
-                case "registerKey":
-                  await gateway.openOptionsPage(c.ACTIONS.SET_KEY);
-
-                  focusTracker.setAction(checkSecretAction);
-
-                  loader.style.display = "block";
-                  const fallbackLink = document.createElement('a');
-                  fallbackLink.style.cursor = 'pointer';
-                  fallbackLink.appendChild(Object.assign(document.createElement('b'), { textContent: 'click here' }));
-                  fallbackLink.addEventListener('click', () => gateway.openOptionsPage(c.ACTIONS.SET_KEY));
-                  text.replaceChildren(
-                    document.createTextNode("The setup will continue once you have registered your key. If the tab didn't open, "),
-                    fallbackLink,
-                    document.createTextNode(" or navigate to the extension's options page.")
-                  );
-                  button.textContent = "Check key";
-                  button.setAttribute("data-action", "checkKey");
-
-                  return c.OUTCOMES.IGNORE;
-                case "checkKey":
-                  if (await gateway.secretLoaded()) {
-                    await checkSecretAction();
-                    return c.OUTCOMES.IGNORE;
-                  } else {
-                    toast.show("Key not set", "Register a key to continue", "KEY");
-                    await u.sleep(3000);
-                    toast.hide("KEY");
-                    return c.OUTCOMES.IGNORE;
-                  }
-                case "next":
-                  return c.OUTCOMES.NEXT;
+                loader.style.display = "none";
+                text.textContent = "Great, you have successfully registered your key.";
+                button.textContent = "Next";
+                button.setAttribute("data-action", "next");
               }
+            };
+
+            switch (buttonAction) {
+              case "registerKey":
+                await gateway.openOptionsPage(c.ACTIONS.SET_KEY);
+
+                focusTracker.setAction(checkSecretAction);
+
+                loader.style.display = "block";
+                const fallbackLink = document.createElement('a');
+                fallbackLink.style.cursor = 'pointer';
+                fallbackLink.appendChild(Object.assign(document.createElement('b'), { textContent: 'click here' }));
+                fallbackLink.addEventListener('click', () => gateway.openOptionsPage(c.ACTIONS.SET_KEY));
+                text.replaceChildren(
+                  document.createTextNode("The setup will continue once you have registered your key. If the tab didn't open, "),
+                  fallbackLink,
+                  document.createTextNode(" or navigate to the extension's options page.")
+                );
+                button.textContent = "Check key";
+                button.setAttribute("data-action", "checkKey");
+
+                return Popup.OUTCOMES.IGNORE;
+              case "checkKey":
+                if (await gateway.isSecretLoaded()) {
+                  await checkSecretAction();
+                  return Popup.OUTCOMES.IGNORE;
+                } else {
+                  toast.show("Key not set", "Register a key to continue", "KEY");
+                  await u.sleep(3000);
+                  toast.hide("KEY");
+                  return Popup.OUTCOMES.IGNORE;
+                }
+              case "next":
+                return Popup.OUTCOMES.NEXT;
             }
-          }],
-          html: [{
-            position: "afterbegin",
-            content: await components.getWelcomeHtml(2, {
-              key_url: await gateway.getResUrl('/src/key_128.png')
-            })
-          },
-          {
-            position: "beforebuttons",
-            content: await components.getWelcomeHtml("2_loader")
-          }]
-        },
-        {
-          title: "Use Your Key",
-          text: "Now that your key is ready, you can use it seamlessly just by adding a " + c.LOCK_TAG + " tag to any node you want to secure. All sub-nodes of the selected node, including the ones you will add later, will be encrypted automatically.",
-          html: [{
-            position: "afterbegin",
-            content: await components.getWelcomeHtml(3, {
-              ss1_url: theme === c.THEMES.LIGHT ? (await gateway.getResUrl('/src/ss1.png')) : (await gateway.getResUrl('/src/ss1_dark.png'))
-            })
-          }]
-        },
-        {
-          title: "That's It!",
-          text: "Encrypted nodes will be readable only from web browsers that have Workflowy Encrypter installed. Try to use a different device or disable the extension temporarily to see the magic!",
-          html: [{
-            position: "afterbegin",
-            content: await components.getWelcomeHtml(4, {
-              logo_url: await gateway.getResUrl('/src/logo_128.png'),
-              logo_w_url: await gateway.getResUrl('/src/logo_w_128.png')
-            })
-          }],
-          script: () => {
+          }))
+          .addHtml("afterbegin", await components.getWelcomeHtml(2, {
+            key_url: await gateway.getResUrl('/src/key_128.png')
+          }))
+          .addHtml("beforebuttons", await components.getWelcomeHtml("2_loader")),
+
+        new PopupPage(
+          "Use Your Key",
+          "Now that your key is ready, you can use it seamlessly just by adding a " + c.LOCK_TAG + " tag to any node you want to secure. All sub-nodes of the selected node, including the ones you will add later, will be encrypted automatically."
+        )
+          .addHtml("afterbegin", await components.getWelcomeHtml(3, {
+            ss1_url: theme === c.THEMES.LIGHT ? (await gateway.getResUrl('/src/ss1.png')) : (await gateway.getResUrl('/src/ss1_dark.png'))
+          })),
+
+        new PopupPage(
+          "That's It!",
+          "Encrypted nodes will be readable only from web browsers that have Workflowy Encrypter installed. Try to use a different device or disable the extension temporarily to see the magic!"
+        )
+          .addHtml("afterbegin", await components.getWelcomeHtml(4, {
+            logo_url: await gateway.getResUrl('/src/logo_128.png'),
+            logo_w_url: await gateway.getResUrl('/src/logo_w_128.png')
+          }))
+          .setScript(() => {
             const blue = document.getElementById("_blue");
             const blueContent = document.getElementById("_blue-content");
             const box = document.getElementById("_html1-box");
@@ -964,104 +589,94 @@ class PopupHelper {
               elemRect = logo.getBoundingClientRect(),
               offsetTop   = elemRect.top - boxRect.top,
               offsetLeft   = elemRect.left - boxRect.left;
-    
+
             blue.style.left = offsetLeft + (64/2) - 1 + "px";
             blue.style.top = offsetTop + (64/2) + "px";
             blueContent.style.left = (-offsetLeft - (64/2) + 1) + "px";
             blueContent.style.top = (-offsetTop - (64/2)) + "px";
-          }
-        }
+          })
       ]
     });
   }
 
   async migrateLockKey() {
     await u.sleep(1000);
-    await popup.create(null, null, [], false, {
+    await popup.open({
       style: await components.getWelcomeCss(),
+      cancellable: false,
       pages: [
-        {
-          title: "A Little Rearrangement",
-          text: "We are updating the location where your key is stored on your device to enhance its security. Use the button below to move your key to the new location. This will open a new tab.",
-          buttons: [{
-            outcome: c.OUTCOMES.CUSTOM,
-            text: "Move key",
-            onClick: async function() {
-              let button = document.getElementById("_popup-button0");
-              let loader = document.getElementById("_loader");
-              let text = document.getElementById("_popup-text");
-              let buttonAction = button.getAttribute("data-action") ?? "moveKey";
-              
-              let checkSecretAction = async () => {
-                // Ignore broadcasted actions
-                broadcastCheckTime = new Date().getTime();
+        new PopupPage(
+          "A Little Rearrangement",
+          "We are updating the location where your key is stored on your device to enhance its security. Use the button below to move your key to the new location. This will open a new tab."
+        )
+          .addButton(new PopupButton("Move key", Popup.OUTCOMES.CUSTOM).setOnClick(async function() {
+            let button = document.getElementById("_popup-button0");
+            let loader = document.getElementById("_loader");
+            let text = document.getElementById("_popup-text");
+            let buttonAction = button.getAttribute("data-action") ?? "moveKey";
 
-                if (await gateway.getVar("keyMoved", false)) {
-                  focusTracker.clearAction();
+            let checkSecretAction = async () => {
+              // Ignore broadcasted actions
+              broadcastCheckTime = new Date().getTime();
 
-                  window.localStorage.removeItem("lockSecret");
-                  window.localStorage.removeItem("lockCache");
+              if (await gateway.getVar("keyMoved", false)) {
+                focusTracker.clearAction();
 
-                  loader.style.display = "none";
-                  text.replaceChildren(
-                    document.createTextNode("You have successfully moved your key to its new secure location. "),
-                    Object.assign(document.createElement('b'), { textContent: "If you have other Workflowy tabs, reload them to prevent encryption issues." })
-                  );
-                  button.textContent = "Close";
-                  button.setAttribute("data-action", "next");
-                }
-              };
+                window.localStorage.removeItem("lockSecret");
+                window.localStorage.removeItem("lockCache");
 
-              switch (buttonAction) {
-                case "moveKey":
-                  let secret = window.localStorage.getItem("lockSecret");
-                  await gateway.setVar("keyMoved", false);
-                  await gateway.openOptionsPage(c.ACTIONS.MOVE_KEY, secret);
-                  focusTracker.setAction(checkSecretAction);
-
-                  loader.style.display = "block";
-                  // Build the fallback link with DOM APIs so the secret never appears in the DOM
-                  const fallbackLink = document.createElement('a');
-                  fallbackLink.style.cursor = 'pointer';
-                  fallbackLink.appendChild(Object.assign(document.createElement('b'), { textContent: 'click here' }));
-                  fallbackLink.addEventListener('click', () => gateway.openOptionsPage(c.ACTIONS.MOVE_KEY, secret));
-                  text.replaceChildren(
-                    document.createTextNode("Waiting for your key to be moved to its new location. If the tab didn't open, "),
-                    fallbackLink,
-                    document.createTextNode(" or navigate to the extension's options page.")
-                  );
-                  button.textContent = "Check key";
-                  button.setAttribute("data-action", "checkKey");
-
-                  return c.OUTCOMES.IGNORE;
-                case "checkKey":
-                  if (await gateway.getVar("keyMoved", false)) {
-                    await checkSecretAction();
-                    return c.OUTCOMES.IGNORE;
-                  } else {
-                    toast.show("Key not set", "Confirm moving your key to continue", "KEY");
-                    await u.sleep(3000);
-                    toast.hide("KEY");
-                    return c.OUTCOMES.IGNORE;
-                  }
-                case "next":
-                  return c.OUTCOMES.COMPLETE;
+                loader.style.display = "none";
+                text.replaceChildren(
+                  document.createTextNode("You have successfully moved your key to its new secure location. "),
+                  Object.assign(document.createElement('b'), { textContent: "If you have other Workflowy tabs, reload them to prevent encryption issues." })
+                );
+                button.textContent = "Close";
+                button.setAttribute("data-action", "next");
               }
+            };
+
+            switch (buttonAction) {
+              case "moveKey":
+                let secret = window.localStorage.getItem("lockSecret");
+                await gateway.setVar("keyMoved", false);
+                await gateway.openOptionsPage(c.ACTIONS.MOVE_KEY, secret);
+                focusTracker.setAction(checkSecretAction);
+
+                loader.style.display = "block";
+                // Build the fallback link with DOM APIs so the secret never appears in the DOM
+                const fallbackLink = document.createElement('a');
+                fallbackLink.style.cursor = 'pointer';
+                fallbackLink.appendChild(Object.assign(document.createElement('b'), { textContent: 'click here' }));
+                fallbackLink.addEventListener('click', () => gateway.openOptionsPage(c.ACTIONS.MOVE_KEY, secret));
+                text.replaceChildren(
+                  document.createTextNode("Waiting for your key to be moved to its new location. If the tab didn't open, "),
+                  fallbackLink,
+                  document.createTextNode(" or navigate to the extension's options page.")
+                );
+                button.textContent = "Check key";
+                button.setAttribute("data-action", "checkKey");
+
+                return Popup.OUTCOMES.IGNORE;
+              case "checkKey":
+                if (await gateway.getVar("keyMoved", false)) {
+                  await checkSecretAction();
+                  return Popup.OUTCOMES.IGNORE;
+                } else {
+                  toast.show("Key not set", "Confirm moving your key to continue", "KEY");
+                  await u.sleep(3000);
+                  toast.hide("KEY");
+                  return Popup.OUTCOMES.IGNORE;
+                }
+              case "next":
+                return Popup.OUTCOMES.COMPLETE;
             }
-          }],
-          html: [{
-            position: "afterbegin",
-            content: await components.getWelcomeHtml(2, {
-              key_url: await gateway.getResUrl('/src/logo_128.png')
-            })
-          },
-          {
-            position: "beforebuttons",
-            content: await components.getWelcomeHtml("2_loader")
-          }]
-        }
+          }))
+          .addHtml("afterbegin", await components.getWelcomeHtml(2, {
+            key_url: await gateway.getResUrl('/src/logo_128.png')
+          }))
+          .addHtml("beforebuttons", await components.getWelcomeHtml("2_loader"))
       ]
-    }); 
+    });
   }
 }
 const popupHelper = new PopupHelper();
@@ -1086,7 +701,7 @@ class API {
         pushPollDataInstance.share_id = shareId;
       }
       rawBody.push_poll_data.push(pushPollDataInstance);
-      
+
       mostRecentOperationTransactionId++; // Find whether increment is needed
     }
 
@@ -1135,23 +750,20 @@ class Encrypter {
         await gateway.setBlocker(null, true);
         break;
       default:
-        await popup.create(
-          "Encryption disabled",
-          "Workflowy Encrypter cannot access your key. Use the button below to set your key, if you haven't already, or cancel to use Workflowy without encryption.", [
-          {
-            text: "Cancel",
-            outcome: c.OUTCOMES.CANCEL
-          },
-          {
-            text: "Set key",
-            outcome: c.OUTCOMES.CUSTOM,
-            primary: true,
-            onClick: async function() {
-              await gateway.openOptionsPage(c.ACTIONS.SET_KEY);
-              return c.OUTCOMES.IGNORE;
-            }
-          }
-        ], true, {type: c.POPUP_TYPES.MINI});
+        await popup.open({
+          type: Popup.TYPES.MINI,
+          pages: [
+            new PopupPage(
+              "Encryption disabled",
+              "Workflowy Encrypter cannot access your key. Use the button below to set your key, if you haven't already, or cancel to use Workflowy without encryption."
+            )
+              .addButton(new PopupButton("Cancel", Popup.OUTCOMES.CANCEL))
+              .addButton(new PopupButton("Set key", Popup.OUTCOMES.CUSTOM).setPrimary().setOnClick(async function() {
+                await gateway.openOptionsPage(c.ACTIONS.SET_KEY);
+                return Popup.OUTCOMES.IGNORE;
+              }))
+          ]
+        });
         reloadPage = false;
         break;
     }
@@ -1179,14 +791,14 @@ class Util {
     }
     return body;
   }
-  
+
   async decodeBody(body) {
     let list = [];
     for (const key in body) {
       if (!body.hasOwnProperty(key)) {
         continue;
       }
-  
+
       let val = body[key];
       if (!u.isString(val)) {
         val = JSON.stringify(val);
@@ -1316,7 +928,7 @@ class Util {
         obj.properties[c.PROPERTIES.DESCRIPTION] = project.no;
       }
       dataObj.push(obj);
-  
+
       if (project.ch && Array.isArray(project.ch)) {
         this.processCreateBulkDataRecursively(project.ch, project.id, dataObj);
       }
@@ -1333,7 +945,7 @@ class Util {
       process: [],
       properties: {}
     };
-    
+
     if (operation.data.description !== undefined) {
       obj.properties[c.PROPERTIES.DESCRIPTION] = operation.data["description"];
       obj.process.push({
@@ -1376,20 +988,11 @@ class Util {
 
         if (
           flags.includes(c.FLAGS.SUPPRESS_WARNINGS)
-          || (await popup.create(
-            "Confirm decryption",
-            "Are you sure you want to remove the " + c.LOCK_TAG + " tag and decrypt all child nodes? This will send decrypted content to Workflowy servers.",
-            [
-              {
-                text: "Cancel",
-                outcome: c.OUTCOMES.CANCEL
-              },
-              {
-                text: "Decrypt",
-                outcome: c.OUTCOMES.COMPLETE,
-                primary: true
-              }
-            ], true, {type: c.POPUP_TYPES.MINI})) === c.OUTCOMES.COMPLETE
+          || (await popup.open(PopupTemplates.confirm(
+              "Confirm decryption",
+              "Are you sure you want to remove the " + c.LOCK_TAG + " tag and decrypt all child nodes? This will send decrypted content to Workflowy servers.",
+              "Decrypt"
+            ))) === Popup.OUTCOMES.COMPLETE
         ) {
           await this.updateChildNodeEncryption(id, false, false, flags);
         } else {
@@ -1503,20 +1106,11 @@ class Util {
         if (
           flags.includes(c.FLAGS.SUPPRESS_WARNINGS)
           || decryptionAllowed
-          || (await popup.create(
-            "Confirm decryption",
-            "Are you sure you want to move selected node(s) under a non-encrypted node and decrypt their data? This will send decrypted content to Workflowy servers.",
-            [
-              {
-                text: "Cancel",
-                outcome: c.OUTCOMES.CANCEL
-              },
-              {
-                text: "Decrypt",
-                outcome: c.OUTCOMES.COMPLETE,
-                primary: true
-              }
-            ], true, {type: c.POPUP_TYPES.MINI})) === c.OUTCOMES.COMPLETE
+          || (await popup.open(PopupTemplates.confirm(
+              "Confirm decryption",
+              "Are you sure you want to move selected node(s) under a non-encrypted node and decrypt their data? This will send decrypted content to Workflowy servers.",
+              "Decrypt"
+            ))) === Popup.OUTCOMES.COMPLETE
         ) {
           decryptionAllowed = true;
           await this.updateChildNodeEncryption(id, false, true, flags);
@@ -1602,7 +1196,7 @@ class Util {
     let nodeIds = nodes.getChildren(targetParent)
     for (let nodeId of nodeIds) {
       let node = nodes.get(nodeId);
-      
+
       let treeNode = {
         share_id: nodes.getShareId(nodeId),
         id: nodeId,
@@ -1690,13 +1284,15 @@ class RouteHandler {
         '<ul style="margin: 6px 0 0 16px; padding: 0; list-style: disc;">' +
         attentionNeeded.map(n => '<li>' + u.sanitize(n) + '</li>').join('') +
         '</ul>';
-      await popup.create(null, null, [], true, {
-        type: c.POPUP_TYPES.MINI,
-        pages: [{
-          title: "Heads Up!",
-          text: c.LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers:",
-          html: [{ position: "beforebuttons", content: safeNodeList }]
-        }]
+      await popup.open({
+        type: Popup.TYPES.MINI,
+        pages: [
+          new PopupPage(
+            "Heads Up!",
+            c.LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers:"
+          )
+            .addHtml("beforebuttons", safeNodeList)
+        ]
       });
     }
 
@@ -1739,7 +1335,7 @@ class RouteHandler {
           info.rootProject.no = await encrypter.decrypt(info.rootProject.no);
           node[c.PROPERTIES.DESCRIPTION] = info.rootProject.no;
         }
-        
+
         nodes.update(info.rootProject.id, node);
       }
       shared.push(info.shareId);
@@ -1822,7 +1418,7 @@ window.fetch = async (...args) => {
   if (quarantine) {
     return;
   }
-  
+
   let url = args[0];
   let params = args[1];
 
@@ -1831,17 +1427,33 @@ window.fetch = async (...args) => {
     return;
   }
   args[1] = params;
-  
+
   const response = await origFetch(...args);
 
   return await fetchWrapper.onPostFetch(url, params, response);
 };
+
+// Popup instance is created here because it depends on gateway and theme (initialized in c.init)
+var popup = null;
 
 (async () => {
   // Init
   await c.init();
   u.updateTheme();
   await gateway.setVar("theme", theme);
+
+  // Create shared Popup instance for the page context
+  popup = new Popup({
+    resourceLoader: async (path) => {
+      const url = await gateway.getResUrl(path);
+      const response = await origFetch(url);
+      return await response.text();
+    },
+    isDarkTheme: () => theme === c.THEMES.DARK,
+    onBeforeOpen: () => u.updateTheme()
+  });
+  popup.preload();
+
   toast.init();
   window.onfocus = focusTracker.onChange.bind(focusTracker);
 

@@ -158,6 +158,10 @@
     margin-bottom: -20px;
 } 
 
+._popup-close-icon {
+    position: relative;
+}
+
 ._popup-close:hover > ._popup-close-hint {
     opacity: 0;
 } 

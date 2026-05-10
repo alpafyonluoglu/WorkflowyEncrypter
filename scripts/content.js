@@ -1,26 +1,34 @@
-// Inject
-injectVar("extensionId", chrome.runtime.id);
-injectScript(chrome.runtime.getURL('/scripts/lock.js'));
-injectStyle(chrome.runtime.getURL('/styles/toast.css'));
+class DocumentHelper {
+    injectScript(file_path) {
+        return new Promise(resolve => {
+            var script = document.createElement('script');
+            script.setAttribute('type', 'text/javascript');
+            script.setAttribute('src', file_path);
+            script.onload = resolve;
+            document.body.appendChild(script);
+        });
+    }
 
-// Inject script to page [https://gist.github.com/devjin0617/3e8d72d94c1b9e69690717a219644c7a]
-function injectScript(file_path) {
-    var script = document.createElement('script');
-    script.setAttribute('type', 'text/javascript');
-    script.setAttribute('src', file_path);
-    document.body.appendChild(script);
-}
+    injectStyle(file_path) {
+        var link = document.createElement('link');
+        link.setAttribute('rel', 'stylesheet');
+        link.setAttribute('href', file_path);
+        document.head.appendChild(link);
+    }
 
-function injectStyle(file_path) {
-    var link = document.createElement('link');
-    link.setAttribute('rel', 'stylesheet');
-    link.setAttribute('href', file_path);
-    document.head.appendChild(link);
+    injectVar(key, value) {
+        var variable = document.createElement('span');
+        variable.id = "wfe-internal-" + key;
+        variable.setAttribute('value', value);
+        document.body.appendChild(variable);
+    }
 }
+const documentHelper = new DocumentHelper();
 
-function injectVar(key, value) {
-    var variable = document.createElement('span');
-    variable.id = "wfe-internal-" + key;
-    variable.setAttribute('value', value);
-    document.body.appendChild(variable);
-}
+// Inject lock script
+(async () => {
+    documentHelper.injectVar("extensionId", chrome.runtime.id);
+    await documentHelper.injectScript(chrome.runtime.getURL('/scripts/popup.js'));
+    await documentHelper.injectScript(chrome.runtime.getURL('/scripts/lock.js'));
+    documentHelper.injectStyle(chrome.runtime.getURL('/styles/toast.css'));    
+  })();
