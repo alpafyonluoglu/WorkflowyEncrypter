@@ -563,11 +563,11 @@ class Popup {
       u.updateTheme();
       var popupElement = document.getElementById("_popup");
       var element = document.createElement('style');
-      element.innerHTML = await components.getPopupCss(args.type);
+      element.textContent = await components.getPopupCss(args.type);
       popupElement.appendChild(element);
       if (args.style) {
         var element = document.createElement('style');
-        element.innerHTML = args.style;
+        element.textContent = args.style;
         popupElement.appendChild(element);
       }
       await u.sleep(300);
@@ -730,9 +730,16 @@ class Popup {
       buttonElement.type = "button";
       buttonElement.setAttribute("data-id", i);
       // Possibly change assigned keys for primary and secondary buttons in the future
-      buttonElement.innerHTML = type === c.POPUP_TYPES.DEFAULT
-        ? buttonData.text :
-        ('<span>' + buttonData.text + '</span><span class="' + (buttonData.primary ? '_popup-button-hint-primary' : '_popup-button-hint-secondary') + '">' + (buttonData.primary ? '&nbsp;⏎' : '&nbsp;esc') + '</span>');
+      if (type === c.POPUP_TYPES.DEFAULT) {
+        buttonElement.textContent = buttonData.text;
+      } else {
+        const textSpan = document.createElement('span');
+        textSpan.textContent = buttonData.text;
+        const hintSpan = document.createElement('span');
+        hintSpan.classList.add(buttonData.primary ? '_popup-button-hint-primary' : '_popup-button-hint-secondary');
+        hintSpan.textContent = '&nbsp;' + (buttonData.primary ? '⏎' : 'esc');
+        buttonElement.append(textSpan, hintSpan);
+      }
       
       let onClickFunc = () => {
         Popup.onClick(i, buttonData.outcome);
@@ -876,7 +883,7 @@ class PopupHelper {
                   focusTracker.clearAction();
 
                   loader.style.display = "none";
-                  text.innerHTML = "Great, you have successfully registered your key.";
+                  text.textContent = "Great, you have successfully registered your key.";
                   button.textContent = "Next";
                   button.setAttribute("data-action", "next");
                 }
@@ -889,7 +896,15 @@ class PopupHelper {
                   focusTracker.setAction(checkSecretAction);
 
                   loader.style.display = "block";
-                  text.innerHTML = "The setup will continue once you have registered your key. If the tab didn't open, <a onclick='ExtensionGateway.call(\"openOptionsPage\", \"setLockKey\")'><b>click here</b></a> or navigate to the extension's options page.";
+                  const fallbackLink = document.createElement('a');
+                  fallbackLink.style.cursor = 'pointer';
+                  fallbackLink.appendChild(Object.assign(document.createElement('b'), { textContent: 'click here' }));
+                  fallbackLink.addEventListener('click', () => gateway.openOptionsPage(c.ACTIONS.SET_KEY));
+                  text.replaceChildren(
+                    document.createTextNode("The setup will continue once you have registered your key. If the tab didn't open, "),
+                    fallbackLink,
+                    document.createTextNode(" or navigate to the extension's options page.")
+                  );
                   button.textContent = "Check key";
                   button.setAttribute("data-action", "checkKey");
 
@@ -988,7 +1003,10 @@ class PopupHelper {
                   window.localStorage.removeItem("lockCache");
 
                   loader.style.display = "none";
-                  text.innerHTML = "You have successfully moved your key to its new secure location. <b>If you bave other Workflowy tabs, reload them to prevent encryption issues.</b>";
+                  text.replaceChildren(
+                    document.createTextNode("You have successfully moved your key to its new secure location. "),
+                    Object.assign(document.createElement('b'), { textContent: "If you have other Workflowy tabs, reload them to prevent encryption issues." })
+                  );
                   button.textContent = "Close";
                   button.setAttribute("data-action", "next");
                 }
@@ -1002,7 +1020,16 @@ class PopupHelper {
                   focusTracker.setAction(checkSecretAction);
 
                   loader.style.display = "block";
-                  text.innerHTML = "Waiting for you key to be moved to its new location. If the tab didn't open, <a onclick='ExtensionGateway.call(\"openOptionsPage\", \"migrateLockKey\", \"" + secret + "\")'><b>click here</b></a> or navigate to the extension's options page.";
+                  // Build the fallback link with DOM APIs so the secret never appears in the DOM
+                  const fallbackLink = document.createElement('a');
+                  fallbackLink.style.cursor = 'pointer';
+                  fallbackLink.appendChild(Object.assign(document.createElement('b'), { textContent: 'click here' }));
+                  fallbackLink.addEventListener('click', () => gateway.openOptionsPage(c.ACTIONS.MOVE_KEY, secret));
+                  text.replaceChildren(
+                    document.createTextNode("Waiting for your key to be moved to its new location. If the tab didn't open, "),
+                    fallbackLink,
+                    document.createTextNode(" or navigate to the extension's options page.")
+                  );
                   button.textContent = "Check key";
                   button.setAttribute("data-action", "checkKey");
 
