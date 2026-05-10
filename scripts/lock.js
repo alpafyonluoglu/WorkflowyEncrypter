@@ -49,6 +49,17 @@ class BaseUtil {
     }
     return result;
   }
+
+  sanitize(str) {
+    // Escape a string so it is safe to embed inside HTML markup
+    return String(str)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
 }
 const u = new BaseUtil();
 
@@ -406,6 +417,17 @@ class Toast {
     document.body.insertAdjacentHTML("afterbegin", await components.getToastContainerHTML());
   }
 
+  setMessage(title, text) {
+    const container = document.getElementById("_message");
+    container.replaceChildren();
+    const span = document.createElement('span');
+    const bold = document.createElement('b');
+    bold.textContent = title;
+    span.appendChild(bold);
+    span.appendChild(document.createTextNode(' ' + text));
+    container.appendChild(span);
+  }
+
   async show(title, text, relatedNodeId) {
     Toast.PROCESSES[relatedNodeId] = {
       title: title,
@@ -430,7 +452,7 @@ class Toast {
         let process = Object.values(Toast.PROCESSES)[0];
         let title = process.title;
         let text = process.text;
-        document.getElementById("_message").innerHTML = "<span><b>" + title + "</b> " + text + "</span>";
+        toast.setMessage(title, text);
 
         let toastElement = document.getElementById("_toast2");
         let height = toastElement.offsetHeight;
@@ -455,7 +477,7 @@ class Toast {
       let process = Object.values(Toast.PROCESSES)[0];
       let title = process.title;
       let text = process.text;
-      document.getElementById("_message").innerHTML = "<span><b>" + title + "</b> " + text + "</span>";
+      toast.setMessage(title, text);
       return;
     }
 
@@ -638,13 +660,13 @@ class Popup {
     // Load new page
     var titleElement = document.createElement('p');
     titleElement.classList.add("_popup-title");
-    titleElement.innerHTML = title;
+    titleElement.textContent = title;
     content.appendChild(titleElement);
 
     var textElement = document.createElement('p');
     textElement.classList.add("_popup-text");
     textElement.id = "_popup-text";
-    textElement.innerHTML = text;
+    textElement.textContent = text;
     content.appendChild(textElement);
 
     if (input !== null) {
@@ -654,7 +676,7 @@ class Popup {
       
       var textElement = document.createElement('p');
       textElement.classList.add("_input-text");
-      textElement.innerHTML = input["label"];
+      textElement.textContent = input["label"];
       divElement1.appendChild(textElement);
 
       var divElement2 = document.createElement('div');
@@ -1637,7 +1659,18 @@ class RouteHandler {
       }
     }
     if (attentionNeeded.length > 0 && (await gateway.secretLoaded())) {
-      await popup.create("Heads Up!", c.LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers: <br>- " + attentionNeeded.join("<br>- "), [], true, {type: c.POPUP_TYPES.MINI});
+      const safeNodeList =
+        '<ul style="margin: 6px 0 0 16px; padding: 0; list-style: disc;">' +
+        attentionNeeded.map(n => '<li>' + u.sanitize(n) + '</li>').join('') +
+        '</ul>';
+      await popup.create(null, null, [], true, {
+        type: c.POPUP_TYPES.MINI,
+        pages: [{
+          title: "Heads Up!",
+          text: c.LOCK_TAG + " tag is removed from the following node(s) via a remote session. Add the tag again to keep your data protected; otherwise, your decrypted data will be sent to Workflowy servers:",
+          html: [{ position: "beforebuttons", content: safeNodeList }]
+        }]
+      });
     }
 
     return new Response(JSON.stringify(responseData));
