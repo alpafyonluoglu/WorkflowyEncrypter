@@ -1116,7 +1116,7 @@ class Encrypter {
   }
 
   async checkSecret() {
-    if (await gateway.secretLoaded()) {
+    if (await gateway.isSecretLoaded()) {
       return true;
     }
 
@@ -1685,7 +1685,7 @@ class RouteHandler {
         attentionNeeded.push(trackedChangeData[id]["name"]);
       }
     }
-    if (attentionNeeded.length > 0 && (await gateway.secretLoaded())) {
+    if (attentionNeeded.length > 0 && (await gateway.isSecretLoaded())) {
       const safeNodeList =
         '<ul style="margin: 6px 0 0 16px; padding: 0; list-style: disc;">' +
         attentionNeeded.map(n => '<li>' + u.sanitize(n) + '</li>').join('') +

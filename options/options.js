@@ -100,9 +100,9 @@ const c = new Constants();
 
 class ContentManager {
     async getBannerContent() {
-        const secretLoaded = await gateway.secretLoaded(true);
+        const isSecretLoaded = await gateway.isSecretLoaded(true);
         const blocker = await gateway.getStorage("blocker", null);
-        if (secretLoaded && blocker === null) {
+        if (isSecretLoaded && blocker === null) {
             return null;
         }
 

@@ -53,49 +53,6 @@ class ExtensionStorage {
 }
 const storage = new ExtensionStorage();
 
-class Cache {
-    async get(key, defVal = null) {
-        let cacheData = await storage.get("lockCache", undefined);
-        cacheData = (cacheData !== null && cacheData !== undefined) ? JSON.parse(cacheData) : {};
-        if (cacheData[key]) {
-            cacheData[key].lastAccessed = Date.now();
-            await storage.set("lockCache", JSON.stringify(cacheData));
-            return cacheData[key].val;
-        }
-        return defVal;
-    }
-
-    async set(key, val) {
-        let cacheData = await storage.get("lockCache", undefined);
-        cacheData = (cacheData !== null && cacheData !== undefined) ? JSON.parse(cacheData) : {};
-        cacheData[key] = {
-            val: val,
-            lastAccessed: Date.now()
-        };
-        await storage.set("lockCache", JSON.stringify(cacheData));
-    }
-
-    async clear(light = true) {
-        if (!light) {
-            await storage.set("lockCache", undefined);
-            return;
-        }
-
-        let cacheData = await storage.get("lockCache", undefined);
-        cacheData = (cacheData !== null && cacheData !== undefined) ? JSON.parse(cacheData) : {};
-
-        let now = Date.now();
-        let lifeDuration = 1000 * 60 * 60 * 24 * 7; // 1 week
-        for (let key in cacheData) {
-            if (now > lifeDuration + cacheData[key].lastAccessed) {
-                delete cacheData[key];
-            }
-        }
-
-        await storage.set("lockCache", JSON.stringify(cacheData));
-    }
-}
-const cache = new Cache();
 
 class Utils {
     async getLockTag() {
@@ -116,20 +73,14 @@ class Utils {
 const utils = new Utils();
 
 class Encrypter {
+    static DERIVED_KEY_CACHE = {}; // in-memory: saltBase64 -> CryptoKey
     SECRET = null;
-    enc;
-    dec;
-
-    constructor() {
-        this.enc = new TextEncoder();
-        this.dec = new TextDecoder();
-    }
 
     async loadSecret() {
         this.SECRET = await storage.get("lockSecret", null);
     }
 
-    async secretLoaded(bypassBlockerCheck = false) {
+    async isSecretLoaded(bypassBlockerCheck = false) {
         if (!bypassBlockerCheck && (await this.getBlocker()) !== null) {
             return false;
         }
@@ -153,31 +104,23 @@ class Encrypter {
     }
 
     async encrypt(data) {
-        if (!(await this.secretLoaded())) {
+        if (!(await this.isSecretLoaded())) {
             return data;
         }
-        const encryptedData = await this.encryptData(data, this.SECRET);
-        await cache.set(c.PRE_ENC_CHAR + encryptedData, data);
+        const encryptedData = await this.encryptData(data);
         return c.PRE_ENC_CHAR + encryptedData;
     }
 
     async decrypt(data) {
         if (
             (!data.startsWith(c.PRE_ENC_CHAR)) ||
-            (!(await this.secretLoaded()))
+            (!(await this.isSecretLoaded()))
         ) {
             return data;
         }
 
-        let cachedDecryptedData = await cache.get(data, null);
-        if (cachedDecryptedData !== null && cachedDecryptedData !== undefined) {
-            return cachedDecryptedData;
-        }
-
-        let origData = data;
         data = data.substring(c.PRE_ENC_CHAR.length);
-        const decryptedData = await this.decryptData(data, this.SECRET);
-        await cache.set(origData, decryptedData);
+        const decryptedData = await this.decryptData(data);
         return decryptedData || data;
     }
 
@@ -192,11 +135,11 @@ class Encrypter {
         Uint8Array.from(atob(b64), (c) => c.charCodeAt(null));
 
     getPasswordKey = (password) =>
-        crypto.subtle.importKey("raw", this.enc.encode(password), "PBKDF2", false, [
+        crypto.subtle.importKey("raw", (new TextEncoder()).encode(password), "PBKDF2", false, [
         "deriveKey",
         ]);
 
-    deriveKey = (passwordKey, salt, keyUsage) =>
+    deriveKey = (passwordKey, salt) =>
         crypto.subtle.deriveKey(
         {
             name: "PBKDF2",
@@ -206,23 +149,83 @@ class Encrypter {
         },
         passwordKey,
         { name: "AES-GCM", length: 256 },
-        false,
-        keyUsage
+        true, // extractable so the result can be exported and persisted
+        ["encrypt", "decrypt"]
         );
 
-    async encryptData(secretData, password) {
+    // Three-tier derived-key lookup so PBKDF2 only runs once per unique salt:
+    //   1. in-memory (survives within a service-worker lifetime)
+    //   2. chrome.storage.local (survives service-worker restarts)
+    //   3. cold PBKDF2 derivation (first time a given salt is seen)
+    async getDerivedKey(salt) {
+        const saltKey = this.buff_to_base64(salt);
+
+        // 1. Hot path: in-memory
+        if (Encrypter.DERIVED_KEY_CACHE[saltKey]) {
+            return Encrypter.DERIVED_KEY_CACHE[saltKey];
+        }
+
+        // 2. Warm path: persistent storage
+        const stored = await storage.get("derivedKeyCache", {});
+        if (stored[saltKey]) {
+            const cryptoKey = await crypto.subtle.importKey(
+                "raw",
+                this.base64_to_buf(stored[saltKey].key),
+                { name: "AES-GCM", length: 256 },
+                false, // no need to re-export once it's back in memory
+                ["encrypt", "decrypt"]
+            );
+            Encrypter.DERIVED_KEY_CACHE[saltKey] = cryptoKey;
+            stored[saltKey].lastAccessed = Date.now();
+            await storage.set("derivedKeyCache", stored);
+            return cryptoKey;
+        }
+
+        // 3. Cold path: derive via PBKDF2, then persist
+        const passwordKey = await this.getPasswordKey(this.SECRET);
+        const cryptoKey = await this.deriveKey(passwordKey, salt);
+
+        Encrypter.DERIVED_KEY_CACHE[saltKey] = cryptoKey;
+        const rawKey = await crypto.subtle.exportKey("raw", cryptoKey);
+        stored[saltKey] = {
+            key: this.buff_to_base64(new Uint8Array(rawKey)),
+            lastAccessed: Date.now()
+        };
+        await storage.set("derivedKeyCache", stored);
+
+        return cryptoKey;
+    }
+
+    async clearDerivedKeyCache(light = true) {
+        if (!light) {
+            Encrypter.DERIVED_KEY_CACHE = {};
+            await storage.set("derivedKeyCache", {});
+            return;
+        }
+
+        const stored = await storage.get("derivedKeyCache", {});
+        const cutoff = Date.now() - (1000 * 60 * 60 * 24 * 7); // 1 week
+        for (const saltKey in stored) {
+            if (stored[saltKey].lastAccessed < cutoff) {
+                delete Encrypter.DERIVED_KEY_CACHE[saltKey];
+                delete stored[saltKey];
+            }
+        }
+        await storage.set("derivedKeyCache", stored);
+    }
+
+    async encryptData(secretData) {
         try {
         const salt = crypto.getRandomValues(new Uint8Array(16));
         const iv = crypto.getRandomValues(new Uint8Array(12));
-        const passwordKey = await this.getPasswordKey(password);
-        const aesKey = await this.deriveKey(passwordKey, salt, ["encrypt"]);
+        const aesKey = await this.getDerivedKey(salt);
         const encryptedContent = await crypto.subtle.encrypt(
             {
             name: "AES-GCM",
             iv: iv,
             },
             aesKey,
-            this.enc.encode(secretData)
+        (new TextEncoder()).encode(secretData)
         );
 
         const encryptedContentArr = new Uint8Array(encryptedContent);
@@ -232,22 +235,20 @@ class Encrypter {
         buff.set(salt, 0);
         buff.set(iv, salt.byteLength);
         buff.set(encryptedContentArr, salt.byteLength + iv.byteLength);
-        const base64Buff = this.buff_to_base64(buff);
-        return base64Buff;
+        return this.buff_to_base64(buff);
         } catch (e) {
         console.warn(`[Workflowy Encrypter] Encryption error`, e);
         return "";
         }
     }
 
-    async decryptData(encryptedData, password) {
+    async decryptData(encryptedData) {
         try {
         const encryptedDataBuff = this.base64_to_buf(encryptedData);
         const salt = encryptedDataBuff.slice(0, 16);
         const iv = encryptedDataBuff.slice(16, 16 + 12);
         const data = encryptedDataBuff.slice(16 + 12);
-        const passwordKey = await this.getPasswordKey(password);
-        const aesKey = await this.deriveKey(passwordKey, salt, ["decrypt"]);
+        const aesKey = await this.getDerivedKey(salt);
         const decryptedContent = await crypto.subtle.decrypt(
             {
             name: "AES-GCM",
@@ -256,7 +257,7 @@ class Encrypter {
             aesKey,
             data
         );
-        return this.dec.decode(decryptedContent);
+        return (new TextDecoder()).decode(decryptedContent);
         } catch (e) {
         console.warn(`[Workflowy Encrypter] Encryption error`, e);
         return "";
@@ -278,7 +279,7 @@ class InstallHandler {
         // Handle backward compatibility related actions
         let prevVersionId = await storage.get("versionId", 0);
         if (prevVersionId === 0) {
-            if (!(await encrypter.secretLoaded())) {
+            if (!(await encrypter.isSecretLoaded())) {
                 // TODO: Inject script to reload open workflowy pages
                 await encrypter.setBlocker(c.ACTIONS.MOVE_KEY);
             }
@@ -320,7 +321,7 @@ const installHandler = new InstallHandler();
 class ExtensionGatewayHandler {
     funcMapper(func, internal) {
         // Define externally accessible functions
-        const publicFunctions = ["encrypt", "decrypt", "secretLoaded", "getBlocker", "setBlocker", "clearCache", "openOptionsPage", "setVar", "getVar", "getConstant", "getLockTag", "getResUrl"];
+        const publicFunctions = ["encrypt", "decrypt", "isSecretLoaded", "getBlocker", "setBlocker", "clearCache", "openOptionsPage", "setVar", "getVar", "getConstant", "getLockTag", "getResUrl"];
         if (internal === false && !publicFunctions.includes(func)) {
             return null;
         }
@@ -332,14 +333,14 @@ class ExtensionGatewayHandler {
                 return encrypter.encrypt.bind(encrypter);
             case "decrypt":
                 return encrypter.decrypt.bind(encrypter);
-            case "secretLoaded":
-                return encrypter.secretLoaded.bind(encrypter);
+            case "isSecretLoaded":
+                return encrypter.isSecretLoaded.bind(encrypter);
             case "getBlocker":
                 return encrypter.getBlocker.bind(encrypter);
             case "setBlocker":
                 return encrypter.setBlocker.bind(encrypter);
             case "clearCache":
-                return cache.clear.bind(cache);
+                return encrypter.clearDerivedKeyCache.bind(encrypter);
             case "openOptionsPage":
                 return installHandler.openOptionsPage.bind(installHandler);
             case "setVar":
