@@ -73,3 +73,10 @@ This project is licensed under the MIT License. See the [LICENSE](/LICENSE) for 
 
 ## Contact
 Have something on your mind? I would be happy to hear from you! Feel free to [shoot me an email](mailto:contact@alpafyonluoglu.dev) or [drop a message on social media](https://alpafyonluoglu.dev/) for any questions, suggestions, or just to say hi :)
+
+## Development and migration safety
+
+This working version includes a staged, extension-owned key-migration candidate.
+Read [the migration safety and release checklist](docs/SAFE_KEY_MIGRATION.md) before using it with real data. Real-browser and Workflowy-account validation remains required.
+
+Run the dependency-free synthetic regression suite with Node 20 or newer: `npm run check`.

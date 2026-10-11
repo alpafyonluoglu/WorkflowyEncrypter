@@ -1,0 +1,11 @@
+{
+  "name": "workflowy-encrypter",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Local synthetic regression suite for safe extension key migration",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node --check background.js && node --check scripts/content.js && node --check scripts/lock.js && node --check scripts/popup.js && node --check options/options.js && node --check popup/popup.js && node --test tests/*.test.js"
+  },
+  "engines": { "node": ">=20" }
+}
