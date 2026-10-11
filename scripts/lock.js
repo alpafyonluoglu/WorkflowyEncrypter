@@ -1,8 +1,9 @@
 var shared = []; // Share IDs
 var trackedChanges = [];
-var cacheClearPerformed = false;
 var quarantine = false;
-var bypassLock = false;
+var sessionKeyId = null;
+var migrationState = { state: "pending" };
+var cryptoFailure = false;
 var theme = null;
 var broadcastCheckTime = new Date().getTime();
 var pendingReload = false;
@@ -31,7 +32,10 @@ class BaseUtil {
   }
 
   endpointMatches(path, method, url, params) {
-    return url.includes(c.DOMAIN + path) && method === params.method;
+    try {
+      const target = new URL(url, location.href);
+      return target.origin === c.DOMAIN && target.pathname === path && method === (params?.method ?? 'GET').toUpperCase();
+    } catch { return false; }
   }
 
   isString(val) {
@@ -75,16 +79,23 @@ class ExtensionGateway {
   }
 
   static call(func, ...params) {
-    return new Promise(resolve => {
-      chrome.runtime.sendMessage(c.EXTENSION_ID,
-        {
-          func: func,
-          params: params
-        },
-        (response) => {
-          resolve(response);
-        }
-      );
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('The extension did not respond. Retry without discarding unsaved edits.')), 30000);
+      try {
+        chrome.runtime.sendMessage(c.EXTENSION_ID, { func, params }, response => {
+          clearTimeout(timer);
+          if (chrome.runtime.lastError || !response || typeof response.ok !== 'boolean') {
+            reject(new Error('The extension connection was lost. Reload only after preserving unsaved edits.'));
+          } else if (!response.ok) {
+            const error = new Error(response.error?.message || 'The extension could not complete this operation.');
+            error.code = response.error?.code;
+            reject(error);
+          } else resolve(response.value);
+        });
+      } catch {
+        clearTimeout(timer);
+        reject(new Error('The extension connection is unavailable.'));
+      }
     });
   }
 }
@@ -92,8 +103,12 @@ const gateway = new ExtensionGateway();
 
 class Constants {
   EXTENSION_ID = undefined;
-  LOCK_TAG = undefined;
-  DOMAIN = "https://workflowy.com";
+  LOCK_TAG = "#private";
+  PRE_ENC_CHAR = "_";
+  THEMES = { LIGHT: "light", DARK: "dark" };
+  ACTIONS = { SET_KEY: "setLockKey", MOVE_KEY: "migrateLockKey", WELCOME: "welcome" };
+  RELOAD_REASONS = { UPDATE: "extensionUpdate", KEY_CHANGE: "keyChange", TAG_CHANGE: "tagChange" };
+  DOMAIN = new URL(location.href).origin;
   DEFAULT_SHARE_ID = 'DEFAULT';
   TOAST_STATES = {
     HIDDEN: 0,
@@ -135,13 +150,16 @@ class Constants {
   }
 
   async init() {
-    this.EXTENSION_ID = u.getInternalVar("extensionId");
-    this.LOCK_TAG = await gateway.getLockTag();
-
-    const constantsToFetch = ["THEMES", "PRE_ENC_CHAR", "RELOAD_REASONS", "ACTIONS"];
-    for (let key of constantsToFetch) {
-      this[key] = await gateway.getConstant(key);
+    const deadline = Date.now() + 30000;
+    while (!document.getElementById('wfe-internal-extensionId')) {
+      if (Date.now() >= deadline) throw new Error('The extension did not start.');
+      await u.sleep(25);
     }
+    this.EXTENSION_ID = u.getInternalVar('extensionId');
+    // Constants are non-secret and local; only user-configured tag needs RPC.
+    const tag = await gateway.getLockTag();
+    if (typeof tag !== 'string' || !tag) throw new Error('Invalid encryption tag.');
+    Object.defineProperty(this, 'LOCK_TAG', { value: tag });
   }
 }
 const c = new Constants();
@@ -204,6 +222,20 @@ const focusTracker = new FocusTracker();
 
 class NodeTracker {
   NODES = {};
+
+  assertKnownAncestry(id) {
+    const seen = new Set();
+    while (id !== null && id !== 'None') {
+      if (typeof id !== 'string' || seen.has(id) || !Object.prototype.hasOwnProperty.call(this.NODES, id))
+        throw new Error('The encryption ancestry is not fully loaded. Preserve unsaved edits and reload before editing this node.');
+      seen.add(id);
+      const node = this.NODES[id];
+      if (node[c.PROPERTIES.SHARE_ID] !== undefined) return; // Explicit shared root.
+      if (!Object.prototype.hasOwnProperty.call(node, c.PROPERTIES.PARENT))
+        throw new Error('The encryption ancestry is not fully loaded. Preserve unsaved edits and reload.');
+      id = node[c.PROPERTIES.PARENT];
+    }
+  }
 
   getAll() {
     return this.NODES;
@@ -376,6 +408,7 @@ class Toast {
   }
 
   async show(title, text, relatedNodeId) {
+    if (!document.getElementById('_message')) return;
     Toast.PROCESSES[relatedNodeId] = {
       title: title,
       text: text
@@ -418,6 +451,7 @@ class Toast {
   }
 
   async hide(relatedNodeId) {
+    if (!document.getElementById('_message')) return;
     delete Toast.PROCESSES[relatedNodeId];
 
     if (Object.values(Toast.PROCESSES).length > 0) {
@@ -599,85 +633,7 @@ class PopupHelper {
     });
   }
 
-  async migrateLockKey() {
-    await u.sleep(1000);
-    await popup.open({
-      style: await components.getWelcomeCss(),
-      cancellable: false,
-      pages: [
-        new PopupPage(
-          "A Little Rearrangement",
-          "We are updating the location where your key is stored on your device to enhance its security. Use the button below to move your key to the new location. This will open a new tab."
-        )
-          .addButton(new PopupButton("Move key", Popup.OUTCOMES.CUSTOM).setOnClick(async function() {
-            let button = document.getElementById("_popup-button0");
-            let loader = document.getElementById("_loader");
-            let text = document.getElementById("_popup-text");
-            let buttonAction = button.getAttribute("data-action") ?? "moveKey";
 
-            let checkSecretAction = async () => {
-              // Ignore broadcasted actions
-              broadcastCheckTime = new Date().getTime();
-
-              if (await gateway.getVar("keyMoved", false)) {
-                focusTracker.clearAction();
-
-                window.localStorage.removeItem("lockSecret");
-                window.localStorage.removeItem("lockCache");
-
-                loader.style.display = "none";
-                text.replaceChildren(
-                  document.createTextNode("You have successfully moved your key to its new secure location. "),
-                  Object.assign(document.createElement('b'), { textContent: "If you have other Workflowy tabs, reload them to prevent encryption issues." })
-                );
-                button.textContent = "Close";
-                button.setAttribute("data-action", "next");
-              }
-            };
-
-            switch (buttonAction) {
-              case "moveKey":
-                let secret = window.localStorage.getItem("lockSecret");
-                await gateway.setVar("keyMoved", false);
-                await gateway.openOptionsPage(c.ACTIONS.MOVE_KEY, secret);
-                focusTracker.setAction(checkSecretAction);
-
-                loader.style.display = "block";
-                // Build the fallback link with DOM APIs so the secret never appears in the DOM
-                const fallbackLink = document.createElement('a');
-                fallbackLink.style.cursor = 'pointer';
-                fallbackLink.appendChild(Object.assign(document.createElement('b'), { textContent: 'click here' }));
-                fallbackLink.addEventListener('click', () => gateway.openOptionsPage(c.ACTIONS.MOVE_KEY, secret));
-                text.replaceChildren(
-                  document.createTextNode("Waiting for your key to be moved to its new location. If the tab didn't open, "),
-                  fallbackLink,
-                  document.createTextNode(" or navigate to the extension's options page.")
-                );
-                button.textContent = "Check key";
-                button.setAttribute("data-action", "checkKey");
-
-                return Popup.OUTCOMES.IGNORE;
-              case "checkKey":
-                if (await gateway.getVar("keyMoved", false)) {
-                  await checkSecretAction();
-                  return Popup.OUTCOMES.IGNORE;
-                } else {
-                  toast.show("Key not set", "Confirm moving your key to continue", "KEY");
-                  await u.sleep(3000);
-                  toast.hide("KEY");
-                  return Popup.OUTCOMES.IGNORE;
-                }
-              case "next":
-                return Popup.OUTCOMES.COMPLETE;
-            }
-          }))
-          .addHtml("afterbegin", await components.getWelcomeHtml(2, {
-            key_url: await gateway.getResUrl('/src/logo_128.png')
-          }))
-          .addHtml("beforebuttons", await components.getWelcomeHtml("2_loader"))
-      ]
-    });
-  }
 }
 const popupHelper = new PopupHelper();
 
@@ -706,7 +662,8 @@ class API {
     }
 
     let body = await util.decodeBody(rawBody);
-    let response = await origFetch(c.DOMAIN + "/push_and_poll", {
+    await encrypter.assertWritable();
+    let response = await guardedFetch(c.DOMAIN + "/push_and_poll", {
       method: 'POST',
       credentials: "same-origin",
       headers: {
@@ -717,61 +674,98 @@ class API {
       body: body,
       url: c.DOMAIN + "/push_and_poll"
     });
+    if (!response.ok) {
+      cryptoFailure = true;
+      encrypter.showStatus();
+      throw new Error('The descendant update was not confirmed. Further writes are paused.');
+    }
+    return response;
   }
 }
 const api = new API();
 
 class Encrypter {
+  updateState() {
+    try {
+      const raw = document.getElementById('wfe-internal-extensionId')?.getAttribute('data-key-state');
+      if (raw) migrationState = JSON.parse(raw);
+      if (migrationState.state === 'ready') {
+        if (sessionKeyId && sessionKeyId !== migrationState.keyId) cryptoFailure = true;
+        if (!sessionKeyId) sessionKeyId = migrationState.keyId;
+      }
+    } catch { migrationState = { state: 'error' }; }
+    this.showStatus();
+  }
+
+  showStatus() {
+    if (!document.body) return;
+    let banner = document.getElementById('wfe-key-status');
+    if (migrationState.state === 'ready' && !migrationState.cleanupPending && !migrationState.recoveryPending && !cryptoFailure) {
+      banner?.remove();
+      return;
+    }
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'wfe-key-status';
+      banner.setAttribute('role', 'status');
+      Object.assign(banner.style, { position: 'fixed', bottom: '0', left: '0', right: '0', zIndex: '2147483647', padding: '12px', background: '#302720', color: '#fff', font: '14px sans-serif' });
+      document.body.appendChild(banner);
+    }
+    let message = cryptoFailure
+      ? 'Encryption needs attention. Writes are paused because some text could not be decrypted or your key changed. Preserve unsaved edits, check your key, then reload.'
+      : migrationState.recoveryPending
+        ? 'Legacy recovery data remains in website storage without its original key. Keep it for recovery; automatic cleanup is paused. Check your saved recovery key before removing any website data.'
+      : migrationState.state === 'ready' && migrationState.cleanupPending
+        ? 'Your key was copied and verified in the extension. Cleanup is still pending: the old page key remains accessible until you finish migration in extension settings.'
+        : 'Encryption is not ready. You can view Workflowy, but writes are paused to protect your data. Check extension settings, then retry.';
+    banner.replaceChildren(document.createTextNode(message + ' '));
+    const options = document.createElement('button');
+    options.textContent = migrationState.cleanupPending ? 'Finish migration' : 'Extension settings';
+    options.onclick = () => gateway.openOptionsPage(migrationState.cleanupPending ? c.ACTIONS.MOVE_KEY : c.ACTIONS.SET_KEY).catch(() => {});
+    const retry = document.createElement('button');
+    retry.textContent = 'Retry';
+    retry.onclick = () => window.dispatchEvent(new Event('wfe-retry-migration'));
+    banner.append(options, retry);
+  }
+
+  async assertWritable() {
+    this.updateState();
+    if (cryptoFailure || migrationState.state !== 'ready' || !sessionKeyId)
+      throw new Error('Writes are paused until your encryption key is available. Preserve unsaved edits and use the encryption status banner.');
+    await gateway.assertSession(sessionKeyId);
+  }
+
   async encrypt(data) {
-    return await gateway.encrypt(data);
+    await this.assertWritable();
+    const result = await gateway.encrypt(data, sessionKeyId);
+    if (typeof result !== 'string' || !result.startsWith('_') || result.length < 61)
+      throw new Error('Encryption did not return valid ciphertext. Nothing was sent.');
+    return result;
   }
 
   async decrypt(data) {
-    return await gateway.decrypt(data);
+    if (typeof data !== 'string' || !data.startsWith('_')) return data;
+    try {
+      if (migrationState.state !== 'ready' || !sessionKeyId) throw new Error('Key unavailable');
+      const result = await gateway.decrypt(data, sessionKeyId);
+      if (typeof result !== 'string') throw new Error('Invalid decrypted text');
+      return result; // The empty string is a valid decrypted value.
+    } catch {
+      cryptoFailure = true;
+      this.showStatus();
+      return data; // Byte-for-byte preservation, including the encryption marker.
+    }
   }
 
   async checkSecret() {
-    if (await gateway.isSecretLoaded()) {
-      return true;
-    }
-
-    // Secret is not loaded
-    bypassLock = true;
-    let reloadPage = true;
-    staller.ready();
-
-    let blocker = await gateway.getBlocker();
-    switch (blocker) {
-      case c.ACTIONS.MOVE_KEY:
-        await popupHelper.migrateLockKey();
-        break;
-      case c.ACTIONS.WELCOME:
-        await popupHelper.welcome();
-        await gateway.setBlocker(null, true);
-        break;
-      default:
-        await popup.open({
-          type: Popup.TYPES.MINI,
-          pages: [
-            new PopupPage(
-              "Encryption disabled",
-              "Workflowy Encrypter cannot access your key. Use the button below to set your key, if you haven't already, or cancel to use Workflowy without encryption."
-            )
-              .addButton(new PopupButton("Cancel", Popup.OUTCOMES.CANCEL))
-              .addButton(new PopupButton("Set key", Popup.OUTCOMES.CUSTOM).setPrimary().setOnClick(async function() {
-                await gateway.openOptionsPage(c.ACTIONS.SET_KEY);
-                return Popup.OUTCOMES.IGNORE;
-              }))
-          ]
-        });
-        reloadPage = false;
-        break;
-    }
-
-    if (reloadPage) {
-      window.onbeforeunload = null;
-      location.reload();
-    }
+    const deadline = Date.now() + 30000;
+    do {
+      this.updateState();
+      if (migrationState.state !== 'pending') return;
+      await u.sleep(25);
+    } while (Date.now() < deadline);
+    migrationState = { state: 'error' };
+    this.showStatus();
   }
 }
 const encrypter = new Encrypter();
@@ -877,6 +871,22 @@ class Util {
   }
 
   async processOperation(operation, dataObj, stringifyJson, flags = []) {
+    if (!flags.includes(c.FLAGS.NO_FETCH)) {
+      const textOperations = ['edit', 'bulk_create', 'bulk_move'];
+      const simpleOperations = ['delete', 'complete', 'uncomplete', 'collapse', 'expand'];
+      if (!textOperations.includes(operation.type) && !simpleOperations.includes(operation.type))
+        throw new Error('An unsupported Workflowy operation was paused to protect your data.');
+      if (operation.type === 'edit') nodes.assertKnownAncestry(operation.data.projectid);
+      if (operation.type === 'bulk_create' || operation.type === 'bulk_move')
+        nodes.assertKnownAncestry(operation.data.parentid === 'None' ? null : operation.data.parentid);
+      if (operation.type === 'bulk_move')
+        for (const id of JSON.parse(operation.data.projectids_json)) nodes.assertKnownAncestry(id);
+      if (simpleOperations.includes(operation.type)) {
+        const containsText = value => value && typeof value === 'object' && Object.entries(value).some(([key, child]) =>
+          ['name', 'description', 'nm', 'no', 'previous_name', 'previous_description', 'project_trees'].includes(key) || containsText(child));
+        if (containsText(operation)) throw new Error('Unexpected text in a Workflowy operation was paused to protect your data.');
+      }
+    }
     if (operation.type === undefined) {
       return false;
     }
@@ -913,14 +923,14 @@ class Util {
       };
       obj.properties[c.PROPERTIES.PARENT] = parent;
 
-      if (project.nm) {
+      if (typeof project.nm === "string") {
         obj.process.push({
           node: project,
           contentTag: "nm"
         });
         obj.properties[c.PROPERTIES.NAME] = project.nm;
       }
-      if (project.no) {
+      if (typeof project.no === "string") {
         obj.process.push({
           node: project,
           contentTag: "no"
@@ -1175,7 +1185,7 @@ class Util {
 
           if (flags.includes(c.FLAGS.FORCE_DECRYPT)) {
             node[contentTag] = await encrypter.decrypt(node[contentTag]);
-          } else if (nodes.isLocked(nodes.getParent(id)) && node && contentTag && node[contentTag] && u.isString(node[contentTag]) && node[contentTag].length > 0) {
+          } else if (nodes.isLocked(nodes.getParent(id)) && node && contentTag && u.isString(node[contentTag])) {
             node[contentTag] = await encrypter.encrypt(node[contentTag]);
           }
         }
@@ -1220,7 +1230,7 @@ class RouteHandler {
     crosscheckUserId = body.crosscheck_user_id;
     clientId = body.client_id;
     clientVersion = body.client_version;
-    wfBuildDate = params.headers.WF_BUILD_DATE;
+    wfBuildDate = params.headers.wf_build_date;
     for (let pushPollData of body.push_poll_data) {
       if (pushPollData.operations === undefined) {
         continue;
@@ -1249,12 +1259,6 @@ class RouteHandler {
   }
 
   async postPushAndPoll(responseData) {
-    // Find another point to clear cache later
-    if (!cacheClearPerformed) {
-      await gateway.clearCache();
-      cacheClearPerformed = true;
-    }
-
     // Track encryption changes
     let trackedChangeData = {};
 
@@ -1350,11 +1354,10 @@ class FetchWrapper {
    * Modify and return request params
    */
   async onPreFetch(url, params) {
-    if (bypassLock && !quarantine) {
-      return params;
-    }
-
     if (u.endpointMatches("/push_and_poll", "POST", url, params)) {
+      const body = await util.encodeBody(params.body);
+      const writes = body.push_poll_data.some(batch => Array.isArray(batch.operations) && batch.operations.length > 0);
+      if (writes) await encrypter.assertWritable();
       return await routes.prePushAndPoll(params);
     }
     return params;
@@ -1364,10 +1367,10 @@ class FetchWrapper {
    * Modify response body
    */
   async onPostFetch(url, params, response) {
-    if (bypassLock && !quarantine) {
-      return response;
-    }
-
+    const intercepted = ['/get_tree_data', '/push_and_poll', '/get_initialization_data'].some(path => {
+      try { return new URL(url, location.href).origin === c.DOMAIN && new URL(url, location.href).pathname === path; } catch { return false; }
+    });
+    if (!intercepted || !response.ok) return response;
     let responseData = await response.clone().json();
     if (responseData.results && Array.isArray(responseData.results) && responseData.results.length > 0 && responseData.results[0].new_most_recent_operation_transaction_id) {
       mostRecentOperationTransactionId = responseData.results[0].new_most_recent_operation_transaction_id;
@@ -1412,51 +1415,125 @@ class Staller {
 }
 const staller = new Staller();
 
-// Fetch wrapper [https://stackoverflow.com/a/64961272]
-window.fetch = async (...args) => {
-  await staller.waitUntilReady();
-  if (quarantine) {
-    return;
+// Serialize the relevant request + response lifecycle. Classifying a child while
+// another request is changing its parent's lock state could otherwise leak plaintext.
+let fetchTail = Promise.resolve();
+function queueFetch(work) {
+  const result = fetchTail.then(work);
+  fetchTail = result.catch(() => {});
+  return result;
+}
+async function guardedFetch(input, init) {
+  const controller = new AbortController();
+  const original = input instanceof Request ? input.signal : init?.signal;
+  const abort = () => controller.abort(original.reason);
+  if (original?.aborted) abort();
+  else original?.addEventListener('abort', abort, { once: true });
+  const timeout = setTimeout(() => controller.abort(new Error('The request timed out. Preserve unsaved edits.')), 30000);
+  try {
+    const response = input instanceof Request
+      ? await origFetch(new Request(input, { signal: controller.signal, referrer: input.referrer, referrerPolicy: input.referrerPolicy }))
+      : await origFetch(input, { ...init, signal: controller.signal });
+    // Bound response-body stalls as well as connection/header stalls. These endpoints
+    // already require a complete JSON body before their contents can be processed.
+    if (response.ok) await response.clone().arrayBuffer();
+    return response;
+  } finally {
+    clearTimeout(timeout);
+    // Keep the original abort link for consumers still reading the returned body.
+    // The once-only listener and its controller are collected with the request signal.
   }
+}
 
-  let url = args[0];
-  let params = args[1];
-
-  params = await fetchWrapper.onPreFetch(url, params);
-  if (quarantine) {
-    return;
-  }
-  args[1] = params;
-
-  const response = await origFetch(...args);
-
-  return await fetchWrapper.onPostFetch(url, params, response);
+// Install synchronously at document_start, before Workflowy's own scripts capture fetch.
+window.fetch = async (input, init) => {
+  const request = input instanceof Request
+    ? new Request(input.clone(), { referrer: input.referrer, referrerPolicy: input.referrerPolicy, ...init })
+    : new Request(input, init);
+  const url = request.url;
+  const relevant = new URL(url).origin === c.DOMAIN &&
+    ['/push_and_poll', '/get_tree_data', '/get_initialization_data'].includes(new URL(url).pathname);
+  if (!relevant) return origFetch(input, init);
+  return queueFetch(async () => {
+    await staller.waitUntilReady();
+    if (quarantine) throw new Error('Writes paused. Preserve unsaved edits before reloading.');
+    const params = {
+      method: request.method,
+      headers: Object.fromEntries(request.headers),
+      body: request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.clone().text()
+    };
+    let processed;
+    try {
+      processed = await fetchWrapper.onPreFetch(url, params);
+      if (processed === false || quarantine) throw new Error('The operation was cancelled.');
+      if (u.endpointMatches('/push_and_poll', 'POST', url, params)) {
+        const body = await util.encodeBody(params.body);
+        if (body.push_poll_data.some(batch => Array.isArray(batch.operations) && batch.operations.length > 0))
+          await encrypter.assertWritable(); // Whole-request barrier after all fields have been encrypted.
+      }
+    } catch (error) {
+      cryptoFailure = true; // Node tracking may already have changed; reload a verified tree before retrying writes.
+      encrypter.showStatus();
+      throw error; // No native fetch, no plaintext fallback, and caller's original request remains intact.
+    }
+    const hasWrites = request.method !== 'GET' && request.method !== 'HEAD' &&
+      (await util.encodeBody(params.body)).push_poll_data.some(batch => Array.isArray(batch.operations) && batch.operations.length > 0);
+    let response;
+    try {
+      response = await guardedFetch(new Request(request, { referrer: request.referrer, referrerPolicy: request.referrerPolicy, ...(request.method === 'GET' || request.method === 'HEAD' ? {} : { body: processed.body }) }));
+      if (hasWrites && !response.ok) {
+        cryptoFailure = true;
+        encrypter.showStatus();
+      }
+    } catch (error) {
+      if (hasWrites) { cryptoFailure = true; encrypter.showStatus(); }
+      throw error;
+    }
+    try {
+      const result = await fetchWrapper.onPostFetch(url, params, response);
+      if (result === response) return response;
+      const headers = new Headers(response.headers);
+      headers.delete('content-length'); headers.delete('content-encoding');
+      return new Response(await result.text(), { status: response.status, statusText: response.statusText, headers });
+    } catch {
+      cryptoFailure = true;
+      encrypter.showStatus();
+      return response; // Keep the original server body and block writes if decoding failed.
+    }
+  });
 };
 
 // Popup instance is created here because it depends on gateway and theme (initialized in c.init)
 var popup = null;
 
-(async () => {
-  // Init
-  await c.init();
+window.addEventListener('wfe-key-state', () => encrypter.updateState());
+document.addEventListener('DOMContentLoaded', () => encrypter.showStatus());
+function initializeUI() {
   u.updateTheme();
-  await gateway.setVar("theme", theme);
-
-  // Create shared Popup instance for the page context
   popup = new Popup({
-    resourceLoader: async (path) => {
-      const url = await gateway.getResUrl(path);
-      const response = await origFetch(url);
-      return await response.text();
-    },
+    resourceLoader: async path => (await origFetch(await gateway.getResUrl(path))).text(),
     isDarkTheme: () => theme === c.THEMES.DARK,
     onBeforeOpen: () => u.updateTheme()
   });
-  popup.preload();
-
-  toast.init();
-  window.onfocus = focusTracker.onChange.bind(focusTracker);
-
-  await encrypter.checkSecret();
-  staller.ready();
+  popup.preload().catch(() => {});
+  toast.init().catch(() => {});
+  const style = document.createElement('link');
+  style.rel = 'stylesheet';
+  gateway.getResUrl('/styles/toast.css').then(url => { style.href = url; document.head.appendChild(style); }).catch(() => {});
+  window.addEventListener('focus', () => focusTracker.onChange().catch(() => encrypter.showStatus()));
+  encrypter.showStatus();
+}
+(async () => {
+  try {
+    await c.init();
+    await encrypter.checkSecret();
+    if (document.body) initializeUI();
+    else document.addEventListener('DOMContentLoaded', initializeUI, { once: true });
+  } catch {
+    migrationState = { state: 'error' };
+    encrypter.showStatus();
+  } finally {
+    // Do not wait for DOMContentLoaded: module scripts can themselves be awaiting fetch.
+    staller.ready();
+  }
 })();

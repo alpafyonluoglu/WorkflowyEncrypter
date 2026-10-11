@@ -1,5 +1,4 @@
 var action = null;
-var actionArg = null;
 
 // IMPROVE: add back/forward buttons
 // IMPROVE: change URL on pgae path change
@@ -53,18 +52,45 @@ class ExtensionGateway {
         });
     }
 
+    static error(code) {
+        const error = new Error("The extension request could not be completed.");
+        error.code = code;
+        return error;
+    }
+
     static call(func, ...params) {
-        return new Promise(resolve => {
-            chrome.runtime.sendMessage({
-                    func: func,
-                    params: params
-                },
-                (response) => {
-                    resolve(response);
-                }
-            );
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            const finish = (error, value) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeout);
+                if (error) reject(error);
+                else resolve(value);
+            };
+            const timeout = setTimeout(() => {
+                finish(ExtensionGateway.error("RPC_TIMEOUT"));
+            }, 30000);
+            try {
+                chrome.runtime.sendMessage({func, params}, response => {
+                    // Read lastError even for a late response, so Chrome consumes it.
+                    const runtimeError = chrome.runtime.lastError;
+                    if (runtimeError) {
+                        finish(ExtensionGateway.error("RPC_UNAVAILABLE"));
+                    } else if (!response || typeof response.ok !== "boolean") {
+                        finish(ExtensionGateway.error("RPC_NO_RESPONSE"));
+                    } else if (!response.ok) {
+                        finish(ExtensionGateway.error(response.error?.code || "RPC_FAILED"));
+                    } else {
+                        finish(null, response.value);
+                    }
+                });
+            } catch (_) {
+                finish(ExtensionGateway.error("RPC_UNAVAILABLE"));
+            }
         });
     }
+
 }
 const gateway = new ExtensionGateway();
 
@@ -90,7 +116,7 @@ class Constants {
     }
 
     async init() {
-        const constantsToFetch = ["RELOAD_REASONS", "ACTIONS"];
+        const constantsToFetch = ["ACTIONS"];
         for (let key of constantsToFetch) {
             this[key] = await gateway.getConstant(key);
         }
@@ -115,143 +141,289 @@ const popup = new Popup({
     },
     isDarkTheme: () => true
 });
-popup.preload();
+// Preloading is optional; opening a popup can load its resources again.
+popup.preload().catch(() => {});
 
 class ContentManager {
-    async getBannerContent() {
-        const isSecretLoaded = await gateway.isSecretLoaded(true);
-        const blocker = await gateway.getStorage("blocker", null);
-        if (isSecretLoaded && blocker === null) {
-            return null;
+    async getKeyStatus() {
+        const status = await gateway.getKeyStatus();
+        if (!status || typeof status.ready !== "boolean" ||
+            !(status.keyId === null || (typeof status.keyId === "string" && status.keyId.length > 0)) ||
+            typeof status.hasPreviousKeys !== "boolean") {
+            throw ExtensionGateway.error("RPC_NO_RESPONSE");
         }
+        return status;
+    }
 
-        switch (blocker) {
-            case c.ACTIONS.WELCOME:
-                return {
-                    title: "Let's Secure Your Data",
-                    text: "Welcome to Workflowy Encrypter! To get started, visit " + u.bannerLink("workflowy.com", "https://workflowy.com/") + "."
-                };
-            case c.ACTIONS.MOVE_KEY:
-                return {
-                    title: "A Little Rearrangement",
-                    text: "We are updating the location where your key is stored on your device to enhance its security. Visit " + u.bannerLink("workflowy.com", "https://workflowy.com/") + " to finish setting things up."
-                };
-            default: // setLockKey
-                return {
-                    title: "Encryption disabled",
-                    text: "Workflowy Encrypter cannot access your key. Visit " + u.bannerLink("workflowy.com", "https://workflowy.com/") + " to set your key."
-                };
+    errorText(error) {
+        switch (error?.code) {
+            case "INVALID_KEY":
+            case "INVALID_SECRET":
+                return "Enter a valid, non-empty key. Your key has not been changed.";
+            case "KEY_CHANGED":
+            case "KEY_CONFLICT":
+            case "CONFLICT":
+                return "The saved key changed in another tab. Refresh key status, then review and confirm your choice again.";
+            case "CONFIRM_REPLACEMENT":
+            case "CONFIRMATION_REQUIRED":
+            case "REPLACEMENT_CONFIRMATION_REQUIRED":
+                return "Changing an existing key needs confirmation. Refresh key status and try again.";
+            case "RPC_TIMEOUT":
+                return "The extension did not respond in time. The save may have completed. Refresh key status before trying again.";
+            case "RPC_UNAVAILABLE":
+            case "RPC_NO_RESPONSE":
+                return "Could not verify the extension's response. Refresh key status before trying again, or reopen this options page.";
+            default:
+                return "Could not verify the save. Keep your key safe, refresh key status, and try again. If this continues, reopen this options page.";
         }
     }
 
-    async loadOptionsContent(parent) {
+    async getBannerContent() {
+        const status = await this.getKeyStatus();
+        if (status.ready) return null;
+        return {
+            title: "Encryption key needed",
+            text: "If you used Workflowy Encrypter before, reopen " + u.bannerLink("workflowy.com", "https://workflowy.com/") + " to retry automatic key recovery. For a new setup, choose Set Key below."
+        };
+    }
+
+    async loadOptionsContent(parent, isCurrent = () => true) {
         parent.appendChild(pageManager.createTextNode("Feel the comfort of privacy... Use the options given below to customize Workflowy Encrypter just the way you want."));
         parent.appendChild(pageManager.createTextNode("Set Key", "Set a key to be used to encrypt your data.", () => {
             pageManager.setPage(c.PAGES.SET_KEY);
         }));
-        parent.appendChild(pageManager.createTextNode("Clear Cache", "Remove stored derived encryption keys.", async () => {
-            const outcome = await popup.open(PopupTemplates.confirm(
-                "Clear Cache",
-                "This will remove all stored derived encryption keys. They will be re-derived automatically as needed, which may cause a brief slowdown on first use.",
-                "Clear Cache"
-            ));
-            if (outcome === Popup.OUTCOMES.COMPLETE) await gateway.clearCache(false);
+        const cacheStatus = pageManager.createTextNode("");
+        cacheStatus.setAttribute("role", "status");
+        let clearing = false;
+        parent.appendChild(pageManager.createTextNode("Clear Cache", "Clear temporary encryption data held in memory.", async () => {
+            if (clearing || !isCurrent()) return;
+            clearing = true;
+            try {
+                const outcome = await popup.open(PopupTemplates.confirm(
+                    "Clear Cache",
+                    "This clears temporary encryption data held in memory. Your saved key and previous keys are kept. Encryption data will be derived again as needed.",
+                    "Clear Cache"
+                ));
+                if (outcome !== Popup.OUTCOMES.COMPLETE || !isCurrent()) return;
+                await gateway.clearCache(false);
+                if (isCurrent()) cacheStatus.textContent = "Temporary encryption cache cleared.";
+            } catch (_) {
+                if (isCurrent()) cacheStatus.textContent = "Could not confirm the cache was cleared. Reopen this options page and try again.";
+            } finally {
+                clearing = false;
+            }
         }));
-        // TODO: Set #private tag
-        // TODO: about & contact page (github page, rate us (on Chrome Webstore), contact developer, version number)
+        parent.appendChild(cacheStatus);
+        parent.appendChild(pageManager.createTextNode("Finish legacy migration", "Review recovery and approve removal of the old website key only when you are ready.", () => {
+            pageManager.setPage(c.PAGES.MOVE_KEY);
+        }));
     }
 
-    async loadSetKeyContent(parent, props = {}) {
-        let text1 = props.moveText ? props.moveText : "Register your key that will be used to encrypt your data. If this is your first time here, just enter a new key and make sure to note it down.";
-        let text2  = props.moveText ? null : u.bold("It will be impossible to recover your encrypted data if you forget your key.");
-
-        parent.appendChild(pageManager.createTextNode(text1));
-        if (text2) {
-            parent.appendChild(pageManager.createTextNode(text2));
+    async loadSetKeyContent(parent, isCurrent = () => true) {
+        let keyStatus = await this.getKeyStatus();
+        parent.appendChild(pageManager.createTextNode("Enter the key you want this extension to use. Keep a safe copy of every key used to encrypt your data."));
+        parent.appendChild(pageManager.createTextNode(u.bold("Encrypted nodes need the key that encrypted them. Losing that key can make recovery impossible.")));
+        if (keyStatus.hasPreviousKeys) {
+            parent.appendChild(pageManager.createTextNode("Previous keys are retained in this extension for recovery. Keep your own safe copies as well."));
         }
-        parent.appendChild(pageManager.createInputNode("Key", "secret", "key-input"));
-        const lockSecret = await gateway.getStorage("lockSecret", null);
-        document.getElementById("key-input").value = props.moveText ? props.secretToMove : lockSecret;
-
-        parent.appendChild(pageManager.createButtonNode([
-            {
-                text: "Save",
-                onclick: async () => {
-                    const subtext = document.getElementById("key-input-subtext");
-                    const key = document.getElementById("key-input").value;
-                    if (!(await gateway.isValidSecret(key.replaceAll(" ", "")))) {
-                        subtext.textContent = "Invalid key";
-                        subtext.style.visibility = "visible";
-                        return
+        const inputNode = pageManager.createInputNode("Key", "Enter a key", "key-input");
+        const input = inputNode.querySelector("input");
+        const subtext = inputNode.querySelector(".node-input-subtext");
+        input.type = "password";
+        input.autocomplete = "new-password";
+        input.spellcheck = false;
+        input.value = "";
+        subtext.setAttribute("role", "status");
+        parent.appendChild(inputNode);
+        let saving = false;
+        const showMessage = text => {
+            subtext.textContent = text;
+            subtext.style.visibility = "visible";
+        };
+        const buttons = pageManager.createButtonNode([{
+            text: "Save",
+            onclick: async () => {
+                if (saving || !isCurrent()) return;
+                saving = true;
+                input.disabled = true;
+                saveButton.disabled = true;
+                try {
+                    if (keyStatus === null) {
+                        keyStatus = await this.getKeyStatus();
+                        if (isCurrent()) {
+                            saveButton.textContent = "Save";
+                            showMessage("Key status refreshed. Review the key you entered, then choose Save again.");
+                        }
+                        return;
                     }
-
-                    if (!props.moveText) {
-                        // TODO: show warning if an existing key is about to be overriden ("existing encrypted data will not be accessible.")
+                    const key = input.value;
+                    if (!key.trim() || key === "null") {
+                        showMessage("Enter a valid, non-empty key.");
+                        return;
                     }
-
-                    await gateway.broadcastReload(c.RELOAD_REASONS.KEY_CHANGE);
-                    await gateway.clearCache(false);
-                    await gateway.setStorage("lockSecret", key);
-                    await gateway.loadSecret();
-                    if (props.onsave) {
-                        await props.onsave();
+                    const replacing = keyStatus.keyId !== null;
+                    if (replacing) {
+                        const outcome = await popup.open(PopupTemplates.confirm(
+                            "Change Key?",
+                            "Existing encrypted nodes still need their previous key. The previous key will be retained locally in this extension for recovery. Keep safe copies of your keys. Change to the key you entered?",
+                            "Change Key"
+                        ));
+                        if (outcome !== Popup.OUTCOMES.COMPLETE || !isCurrent()) return;
                     }
-                    subtext.textContent = [c.ACTIONS.SET_KEY, c.ACTIONS.MOVE_KEY].includes(action) ? "Key saved! You can close this tab now." : "Key saved!";
-                    subtext.style.visibility = "visible";
+                    // The background owns validation, conflict detection, durable storage,
+                    // and only then any reload notification. Never send keys to the page.
+                    const result = await gateway.saveKey(key, keyStatus.keyId, replacing);
+                    if (!result || typeof result.keyId !== "string" || !result.keyId || typeof result.changed !== "boolean") {
+                        throw ExtensionGateway.error("RPC_NO_RESPONSE");
+                    }
+                    keyStatus = {ready: true, keyId: result.keyId, hasPreviousKeys: keyStatus.hasPreviousKeys || (replacing && result.changed)};
+                    input.value = "";
+                    if (isCurrent()) {
+                        showMessage("Key saved and verified in extension storage. Reload every open Workflowy tab before continuing.");
+                    }
+                } catch (error) {
+                    // A failed/lost reply is not proof that no write occurred. Refresh
+                    // status before another attempt, and never reuse old confirmation.
+                    keyStatus = null;
+                    if (isCurrent()) {
+                        saveButton.textContent = "Refresh key status";
+                        showMessage(this.errorText(error));
+                    }
+                } finally {
+                    saving = false;
+                    input.disabled = false;
+                    saveButton.disabled = false;
                 }
             }
-        ]));
-
-        // IMPROVE: warning subtext visibility
+        }]);
+        const saveButton = buttons.querySelector("button");
+        parent.appendChild(buttons);
     }
 
-    async loadMoveKeyContent(parent) {
-        await this.loadSetKeyContent(parent, {
-            moveText: "Confirm your key below to move it to its new location. From now on, you will be able to manage your key and customize the encryption options from the extension options page.",
-            secretToMove: actionArg,
-            onsave: async () => {
-                await gateway.setVar("keyMoved", true);
-                await gateway.setStorage("blocker", null);
+    async loadMoveKeyContent(parent, isCurrent = () => true) {
+        parent.appendChild(pageManager.createTextNode("Reopening Workflowy copies your existing key into extension storage and verifies the save. The old website copy is kept until you explicitly approve cleanup here."));
+        parent.appendChild(pageManager.createTextNode("Before finishing migration, close all other Workflowy tabs and reload the remaining Workflowy tab so an older tab cannot write the website key again. Keep your recovery key backed up. If you do not already have an independent saved copy of your recovery key, leave cleanup pending. Do not clear Workflowy's website data while recovery is pending."));
+        const statusText = pageManager.createTextNode("");
+        statusText.setAttribute("role", "status");
+        parent.appendChild(statusText);
+        let checking = false;
+        const buttons = pageManager.createButtonNode([{
+            text: "Check key status",
+            onclick: async () => {
+                if (checking || !isCurrent()) return;
+                checking = true;
+                try {
+                    const status = await this.getKeyStatus();
+                    if (isCurrent()) {
+                        statusText.textContent = status.ready
+                            ? "A key is ready in extension storage. Complete the precautions above before approving legacy cleanup."
+                            : "No saved key is ready yet. Reopen Workflowy in this browser to retry recovery, then check again.";
+                    }
+                } catch (_) {
+                    if (isCurrent()) statusText.textContent = "Could not check key status. Reopen this options page and try again. Keep your existing Workflowy website data.";
+                } finally {
+                    checking = false;
+                }
             }
-        });
+        }, {
+            text: "Finish legacy migration",
+            onclick: async () => {
+                if (checking || !isCurrent()) return;
+                checking = true;
+                try {
+                    const status = await this.getKeyStatus();
+                    if (!isCurrent()) return;
+                    if (!status.ready || status.keyId === null) {
+                        statusText.textContent = "A verified key is needed first. Reopen Workflowy to copy your existing key, then return here. Keep the website copy for now.";
+                        return;
+                    }
+                    const outcome = await popup.open(PopupTemplates.confirm(
+                        "Finish legacy migration?",
+                        "A key is saved and verified in extension storage. Approving cleanup allows the remaining Workflowy tab to remove its old website key. Close all other Workflowy tabs, reload the remaining tab before continuing, and keep your recovery key backed up. If you do not already have an independent saved copy of your recovery key, leave cleanup pending. Are you ready to approve cleanup?",
+                        "Approve cleanup"
+                    ));
+                    if (outcome !== Popup.OUTCOMES.COMPLETE || !isCurrent()) return;
+                    const result = await gateway.approveLegacyCleanup(status.keyId);
+                    if (!result || result.approved !== true) throw ExtensionGateway.error("RPC_NO_RESPONSE");
+                    if (isCurrent()) {
+                        statusText.textContent = "Cleanup approved temporarily for the current Workflowy tab. Return to that tab and retry migration now. This approval alone does not remove the website copy.";
+                    }
+                } catch (error) {
+                    if (!isCurrent()) return;
+                    switch (error?.code) {
+                        case "OTHER_TABS_OPEN":
+                            statusText.textContent = "Keep exactly one Workflowy tab open. Close all others, reload the remaining tab, then return here and approve cleanup again.";
+                            break;
+                        case "MIGRATION_NOT_READY":
+                            statusText.textContent = "The remaining Workflowy tab is not ready for cleanup. Return there to retry key recovery, then approve cleanup here again. Keep the website copy for now.";
+                            break;
+                        case "KEY_CHANGED":
+                            statusText.textContent = "The saved key changed. Check the key status and review the recovery precautions before approving cleanup again.";
+                            break;
+                        default:
+                            statusText.textContent = "Could not verify cleanup approval. Keep your recovery key backed up, check the key status, and try again. This page cannot confirm that the website copy was removed.";
+                    }
+                } finally {
+                    checking = false;
+                }
+            }
+        }]);
+        parent.appendChild(buttons);
     }
 }
 const content = new ContentManager();
 
 class PageManager {
+    renderId = 0;
+
     async setPage(path) {
-        await this.updatePageContent(path, path.length === 1);
+        const renderId = ++this.renderId;
+        const isCurrent = () => renderId === this.renderId;
+        try {
+            await this.updatePageContent(path, path.length === 1, isCurrent);
+        } catch (_) {
+            if (isCurrent()) this.showError();
+        }
     }
 
-    async updatePageContent(path, showBanner = false) {
+    showError() {
+        const parent = document.getElementById("content");
+        parent.replaceChildren(this.createTitle("Options unavailable"));
+        parent.appendChild(this.createTextNode("Could not read the extension's key status. Keep your existing keys and Workflowy website data. Reopen this options page to try again."));
+        parent.appendChild(this.createButtonNode([{
+            text: "Retry",
+            onclick: () => window.location.reload()
+        }]));
+    }
+
+    async updatePageContent(path, showBanner = false, isCurrent = () => true) {
         this.updateTopBar(path);
-
         const contentParent = document.getElementById("content");
-        contentParent.innerHTML = "";
-
-        contentParent.appendChild(this.createTitle(path[path.length - 1]));
+        contentParent.replaceChildren(this.createTextNode("Loading options..."));
+        const pendingContent = document.createDocumentFragment();
+        pendingContent.appendChild(this.createTitle(path[path.length - 1]));
+        let animate = false;
         if (showBanner) {
-            let [banner, animate] = await this.createBanner();
-            if (banner) {
-                contentParent.appendChild(banner);
-                if (animate) {
-                    animator.bannerAnim();
-                }
-            }
+            const result = await this.createBanner();
+            if (!isCurrent()) return;
+            const banner = result[0];
+            animate = result[1];
+            if (banner) pendingContent.appendChild(banner);
         }
-
-        // Load content
         switch (u.getPathString(path)) {
             case u.getPathString(c.PAGES.OPTIONS):
-                await content.loadOptionsContent(contentParent);
+                await content.loadOptionsContent(pendingContent, isCurrent);
                 break;
             case u.getPathString(c.PAGES.SET_KEY):
-                await content.loadSetKeyContent(contentParent);
+                await content.loadSetKeyContent(pendingContent, isCurrent);
                 break;
             case u.getPathString(c.PAGES.MOVE_KEY):
-                await content.loadMoveKeyContent(contentParent);
+                await content.loadMoveKeyContent(pendingContent, isCurrent);
                 break;
         }
+        if (!isCurrent()) return;
+        contentParent.replaceChildren(pendingContent);
+        if (animate) animator.bannerAnim();
     }
 
     createTitle(text) {
@@ -443,58 +615,35 @@ class PageManager {
 }
 const pageManager = new PageManager();
 
-class Staller {
-    static items = [];
-    static ready = false;
-
-    static addItem(resolve) {
-        Staller.items.push(resolve);
-    }
-
-    waitUntilReady() {
-        return new Promise(resolve => {
-            if (Staller.ready) {
-                return resolve();
-            }
-            Staller.addItem(resolve);
-        });
-    }
-
-    ready() {
-        Staller.ready = true;
-        for (let resolve of Staller.items) {
-            resolve();
-        }
-        Staller.items = [];
-    }
-}
-const staller = new Staller();
-
-// TODO: change onload w/ on focus
 window.onload = async () => {
-    await staller.waitUntilReady();
-    [action, actionArg] = await gateway.getStorage("optionsAction", [null, null]);
-    switch (action) {
-        case c.ACTIONS.OPEN_WORKFLOWY:
-            await gateway.setStorage("optionsAction", null);
-            window.location.replace("https://workflowy.com/");
-            return;
-        case c.ACTIONS.SET_KEY:
-            await pageManager.setPage(c.PAGES.SET_KEY);
-            break;
-        case c.ACTIONS.MOVE_KEY:
-            await pageManager.setPage(c.PAGES.MOVE_KEY);
-            break;
-        default:
-            await pageManager.setPage(c.PAGES.OPTIONS);
-            break;
+    try {
+        await c.init();
+        const optionsAction = await gateway.takeOptionsAction();
+        if (!Array.isArray(optionsAction)) throw ExtensionGateway.error("RPC_NO_RESPONSE");
+        [action] = optionsAction;
+        switch (action) {
+            case c.ACTIONS.OPEN_WORKFLOWY:
+                window.location.replace("https://workflowy.com/");
+                return;
+            case c.ACTIONS.SET_KEY:
+                await pageManager.setPage(c.PAGES.SET_KEY);
+                break;
+            case c.ACTIONS.MOVE_KEY:
+                await pageManager.setPage(c.PAGES.MOVE_KEY);
+                break;
+            default:
+                await pageManager.setPage(c.PAGES.OPTIONS);
+                break;
+        }
+    } catch (_) {
+        pageManager.showError();
     }
-    await gateway.setStorage("optionsAction", [null, null]);
-}
+};
 
 class Animator {
     async bannerAnim() {
         const element = document.getElementById("bannerAnimatedBackground");
+        if (!element) return;
         const height = element.clientHeight;
         const width = element.clientWidth;
 
@@ -510,7 +659,7 @@ class Animator {
             element.appendChild(span);
         }
 
-        while (true) {
+        while (element.isConnected) {
             for (let i = 0; i < cols + rows; i++) {
                 // Uncomment for animation
                 for (let j = 0; j < rows; j++) {
@@ -518,10 +667,12 @@ class Animator {
                         continue;
                     }
                     let id = (i - j) + j * cols;
-                    let element = document.getElementById("bannerAnimatedSpan" + id);
+                    const span = element.querySelector("#bannerAnimatedSpan" + id);
+                    if (!element.isConnected) return;
+                    if (!span) continue;
                     // element.classList.remove("transition");
                     // element.style.opacity = 0;
-                    element.textContent = u.randomStr(1);
+                    span.textContent = u.randomStr(1);
                 }
                 // await u.sleep(0);
                 // for (let j = 0; j < rows; j++) {
@@ -541,10 +692,3 @@ class Animator {
     }
 }
 const animator = new Animator();
-
-(async () => {
-    // Init
-    await c.init();
-
-    staller.ready();
-})();

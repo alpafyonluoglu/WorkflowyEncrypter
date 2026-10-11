@@ -22,13 +22,30 @@
     "type": "module"
   },
   "externally_connectable": {
-    "matches": ["*://*.workflowy.com/*"]
+    "matches": [
+      "https://*.workflowy.com/*"
+    ]
   },
   "content_scripts": [
     {
-      "matches": ["*://*.workflowy.com/*"],
-      "run_at": "document_end",
-      "js": ["/scripts/content.js"]
+      "matches": [
+        "https://*.workflowy.com/*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "js": [
+        "/scripts/popup.js",
+        "/scripts/lock.js"
+      ]
+    },
+    {
+      "matches": [
+        "https://*.workflowy.com/*"
+      ],
+      "run_at": "document_start",
+      "js": [
+        "/scripts/content.js"
+      ]
     }
   ],
   "options_page": "options/options.html",
@@ -60,7 +77,9 @@
         "/layouts/popup_welcome_3.html",
         "/layouts/popup_welcome_4.html"
       ],
-      "matches": ["*://*.workflowy.com/*"]
+      "matches": [
+        "*://*.workflowy.com/*"
+      ]
     }
   ],
   "permissions": [
@@ -68,5 +87,6 @@
   ],
   "host_permissions": [
     "*://*.workflowy.com/*"
-  ]
+  ],
+  "minimum_chrome_version": "111"
 }
